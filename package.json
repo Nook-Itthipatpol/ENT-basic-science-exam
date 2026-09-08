@@ -1,0 +1,11 @@
+{
+  "name": "ent-r1-mock-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check js/app.js && node --check js/logic.js && node --check js/storage.js && node --check js/questions.js",
+    "test": "node --test",
+    "start": "npx serve ."
+  }
+}
