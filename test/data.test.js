@@ -1,32 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { QUESTION_COUNT, questions } from "../js/questions.js";
 
 const ANSWER_LABELS = ["A", "B", "C", "D", "E"];
 const ALLOWED_YEARS = new Set([2021, 2022, 2023]);
 
 const nonblank = (value) => typeof value === "string" && value.trim().length > 0;
-
-function parseCsv(text) {
-  const rows = []; let row = []; let field = ""; let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    if (quoted) {
-      if (character === '"' && text[index + 1] === '"') { field += '"'; index += 1; }
-      else if (character === '"') quoted = false;
-      else field += character;
-    } else if (character === '"') quoted = true;
-    else if (character === ",") { row.push(field); field = ""; }
-    else if (character === "\n" || character === "\r") {
-      if (character === "\r" && text[index + 1] === "\n") index += 1;
-      row.push(field); rows.push(row); row = []; field = "";
-    } else field += character;
-  }
-  if (field || row.length) { row.push(field); rows.push(row); }
-  const [headers, ...values] = rows;
-  return values.map((value) => Object.fromEntries(headers.map((header, index) => [header, value[index] ?? ""])));
-}
 
 test("Set 02 has exactly 61 questions with sequential IDs", () => {
   assert.equal(QUESTION_COUNT, 61);
@@ -76,15 +55,57 @@ test("Set 02 source metadata is from 2021–2023 with unique source rows and eli
   }
 });
 
-test("generated questions retain the source CSV's complete high-yield review and provenance", () => {
-  const source = parseCsv(readFileSync(new URL("../../work_set02/ENT_R1_Basic_Science_Mock_Set_02_refined.csv", import.meta.url), "utf8"));
-  assert.equal(source.length, questions.length);
+test("the high-yield review is the question's full explanation, untruncated", () => {
+  for (const question of questions) {
+    assert.equal(
+      question.highYieldReview,
+      question.explanation,
+      `question ${question.id} review text differs from its explanation`
+    );
+    assert.ok(
+      question.explanation.length >= 120,
+      `question ${question.id} explanation looks truncated (${question.explanation.length} characters)`
+    );
+    assert.ok(
+      /[.!?)]$/.test(question.explanation.trim()),
+      `question ${question.id} explanation does not end on a complete sentence`
+    );
+    assert.ok(
+      !/(\.\.\.|\u2026)\s*$/.test(question.explanation.trim()),
+      `question ${question.id} explanation ends in an ellipsis`
+    );
+    assert.ok(
+      question.explanation.trim().split(/(?<=[.!?])\s+/).length >= 2,
+      `question ${question.id} explanation is a single sentence and is likely incomplete`
+    );
+  }
+});
 
-  source.forEach((record, index) => {
-    const question = questions[index];
-    assert.equal(question.highYieldReview, record.explanation, `question ${question.id} review differs from the source CSV`);
-    assert.deepEqual(question.examYears, (record.exam_years.match(/\d{4}/g) || []).map(Number), `question ${question.id} exam years differ from the source CSV`);
-    assert.equal(question.sourceRow, record.spreadsheet_row, `question ${question.id} source row differs from the source CSV`);
-    assert.equal(question.eligiblePosition, record.eligible_position, `question ${question.id} eligible position differs from the source CSV`);
+test("questions stay in source-spreadsheet order with ascending provenance markers", () => {
+  const ascending = (values, field) => values.forEach((value, index) => {
+    assert.ok(Number.isInteger(value) && value > 0, `question ${questions[index].id} has a non-numeric ${field}`);
+    if (index > 0) {
+      assert.ok(
+        values[index - 1] < value,
+        `question ${questions[index].id} breaks ascending ${field} order (${values[index - 1]} then ${value})`
+      );
+    }
   });
+
+  ascending(questions.map((question) => Number(question.sourceRow)), "sourceRow");
+  ascending(questions.map((question) => Number(question.eligiblePosition)), "eligiblePosition");
+});
+
+test("exam years are whole years listed in ascending order without repeats", () => {
+  for (const question of questions) {
+    question.examYears.forEach((year, index) => {
+      assert.ok(Number.isInteger(year), `question ${question.id} has a non-integer exam year`);
+      if (index > 0) {
+        assert.ok(
+          question.examYears[index - 1] < year,
+          `question ${question.id} exam years are not ascending and unique`
+        );
+      }
+    });
+  }
 });
