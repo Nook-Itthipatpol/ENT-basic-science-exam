@@ -2,6 +2,8 @@
 
 A static, Vercel-ready single-page mock examination for ENT R1 Basic Science Set 02 (61 questions, 90 minutes).
 
+Each question is answered one at a time: choose an option, submit it, and the 90-minute timer pauses while the explanation is shown. Submitted answers are final. Moving to the next question resumes the timer. A full answer review is still available after the exam is submitted.
+
 ## Local preview
 
 No install step is required. From this directory, run:

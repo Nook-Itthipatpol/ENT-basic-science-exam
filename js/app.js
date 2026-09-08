@@ -1,6 +1,6 @@
 import { questions } from "./questions.js";
 import { attemptStore, summaryStore } from "./storage.js";
-import { answeredCount, calculateScore, createAttempt, formatCountdown, getReviewStatus, getTimeRemaining, navigateQuestion, recordAnswer, sanitizeAttempt, unansweredIndices } from "./logic.js";
+import { answeredCount, calculateScore, createAttempt, formatCountdown, getReviewStatus, getTimeRemaining, isRevealed, navigateQuestion, pauseTimer, recordAnswer, resumeTimer, revealAnswer, sanitizeAttempt, unansweredIndices } from "./logic.js";
 
 const main = document.querySelector("#app-main");
 const modalRoot = document.querySelector("#modal-root");
@@ -23,9 +23,13 @@ function startTimer() {
     const target = document.querySelector("[data-countdown]");
     if (!target || !attempt || attempt.submittedAt) return;
     const remaining = getTimeRemaining(attempt);
+    const paused = Boolean(attempt.pausedAt);
     target.textContent = formatCountdown(remaining);
     target.classList.toggle("overdue", remaining < 0);
-    target.setAttribute("aria-label", `${remaining < 0 ? "Time exceeded" : "Time remaining"}: ${formatCountdown(remaining)}`);
+    target.setAttribute("aria-label", `${paused ? "Timer paused, " : ""}${remaining < 0 ? "Time exceeded" : "Time remaining"}: ${formatCountdown(remaining)}`);
+    const label = document.querySelector("[data-timer-label]");
+    if (label) label.textContent = paused ? "Paused" : "Time";
+    document.querySelector(".timer")?.classList.toggle("paused", paused);
   };
   update();
   timer = window.setInterval(update, 1000);
@@ -33,6 +37,7 @@ function startTimer() {
 
 function home() {
   stopTimer();
+  if (attempt && !attempt.submittedAt && attempt.pausedAt) { attempt = resumeTimer(attempt); persist(); }
   const active = attempt && !attempt.submittedAt;
   const storedProgress = active ? progress() : 0;
   const last = latestSummary ? `${latestSummary.score}/${questions.length} (${latestSummary.percent}%)` : "No completed attempt yet";
@@ -44,20 +49,63 @@ function home() {
     </section>`;
 }
 
-function exam({ focusAnswer } = {}) {
+function syncTimerState() {
+  if (!attempt || attempt.submittedAt) return;
+  const next = isRevealed(attempt, attempt.currentQuestion) ? pauseTimer(attempt) : resumeTimer(attempt);
+  if (next !== attempt) { attempt = next; persist(); }
+}
+
+function optionMarkup(question, index, selected, revealed) {
+  return question.choices.map((choice) => {
+    const isSelected = selected === choice.label;
+    const isAnswer = question.correctAnswer === choice.label;
+    const state = revealed ? (isAnswer ? " is-correct" : isSelected ? " is-wrong" : "") : "";
+    const tag = revealed && isAnswer ? '<span class="option-tag">Correct answer</span>' : revealed && isSelected ? '<span class="option-tag">Your answer</span>' : "";
+    return `<label class="option ${isSelected ? "selected" : ""}${state}"><input type="radio" name="answer" value="${choice.label}" ${isSelected ? "checked" : ""} ${revealed ? "disabled" : ""}/><span class="choice-letter">${choice.label}</span><span>${esc(choice.text)}</span>${tag}</label>`;
+  }).join("");
+}
+
+function feedbackMarkup(question, selected) {
+  const correct = selected === question.correctAnswer;
+  const answerText = question.choices.find((item) => item.label === question.correctAnswer)?.text || "";
+  return `<section class="feedback ${correct ? "correct" : "incorrect"}" data-feedback tabindex="-1" aria-label="Answer feedback">
+      <div class="feedback-head"><strong>${correct ? "Correct" : "Incorrect"}</strong><span class="feedback-paused">Timer paused</span></div>
+      ${correct ? "" : `<p class="feedback-answer">Correct answer: <strong>${esc(question.correctAnswer)}. ${esc(answerText)}</strong></p>`}
+      <div class="review-note"><strong>Explanation</strong><p>${esc(question.explanation)}</p></div>
+    </section>`;
+}
+
+function navigatorMarkup(index) {
+  return questions.map((question, itemIndex) => {
+    const answer = attempt.answers[itemIndex];
+    const revealed = isRevealed(attempt, itemIndex);
+    const state = revealed ? (answer === question.correctAnswer ? "correct" : "incorrect") : answer ? "answered" : "";
+    const label = revealed ? (state === "correct" ? ", answered correctly" : ", answered incorrectly") : answer ? ", answer selected" : ", unanswered";
+    return `<button class="nav-question ${itemIndex === index ? "current" : ""} ${state}" aria-label="Question ${itemIndex + 1}${label}" aria-current="${itemIndex === index ? "step" : "false"}" data-question="${itemIndex}">${itemIndex + 1}</button>`;
+  }).join("");
+}
+
+function exam({ focusAnswer, focusFeedback } = {}) {
   if (!attempt) attempt = createAttempt();
+  syncTimerState();
   const index = attempt.currentQuestion;
   const question = questions[index];
   const selected = attempt.answers[index];
+  const revealed = isRevealed(attempt, index);
+  const isLast = index === questions.length - 1;
   const complete = progress();
+  const primary = revealed
+    ? `<button class="primary" data-action="${isLast ? "submit" : "next"}">${isLast ? "Finish exam" : "Next question →"}</button>`
+    : `<button class="primary" data-action="reveal" ${selected ? "" : "disabled"}>Submit answer</button>`;
   main.innerHTML = `
-    <section class="exam-head"><button class="back-button" data-action="home">← Exit to home</button><div class="timer"><span>Time</span><strong data-countdown></strong></div></section>
+    <section class="exam-head"><button class="back-button" data-action="home">← Exit to home</button><div class="timer"><span data-timer-label>Time</span><strong data-countdown></strong></div></section>
     <div class="exam-progress" aria-label="${complete} of ${questions.length} questions answered"><div><span>Question ${index + 1} of ${questions.length}</span><span>${complete} answered</span></div><div class="progress-track"><i style="width:${(index + 1) / questions.length * 100}%"></i></div></div>
-    <article class="question-card"><div class="question-meta"><p class="topic">${esc(question.topic)}</p><p class="exam-years">${formatExamYears(question.examYears)}</p></div><h1>${esc(question.question)}</h1><fieldset><legend class="sr-only">Choose one answer</legend>${question.choices.map((choice) => `<label class="option ${selected === choice.label ? "selected" : ""}"><input type="radio" name="answer" value="${choice.label}" ${selected === choice.label ? "checked" : ""}/><span class="choice-letter">${choice.label}</span><span>${esc(choice.text)}</span></label>`).join("")}</fieldset></article>
-    <nav class="exam-actions" aria-label="Question navigation"><button data-action="previous" ${index === 0 ? "disabled" : ""}>Previous</button><button class="primary" data-action="${index === questions.length - 1 ? "submit" : "next"}">${index === questions.length - 1 ? "Submit exam" : "Next question →"}</button></nav>
-    <section class="navigator"><div class="navigator-title"><h2>Question navigator</h2><button class="text-button" data-action="submit">Submit exam</button></div><div class="question-grid">${questions.map((_, itemIndex) => `<button class="nav-question ${itemIndex === index ? "current" : ""} ${attempt.answers[itemIndex] ? "answered" : ""}" aria-label="Question ${itemIndex + 1}${attempt.answers[itemIndex] ? ", answered" : ", unanswered"}" aria-current="${itemIndex === index ? "step" : "false"}" data-question="${itemIndex}">${itemIndex + 1}</button>`).join("")}</div></section>`;
+    <article class="question-card ${revealed ? "revealed" : ""}"><div class="question-meta"><p class="topic">${esc(question.topic)}</p><p class="exam-years">${formatExamYears(question.examYears)}</p></div><h1>${esc(question.question)}</h1><fieldset ${revealed ? "disabled" : ""}><legend class="sr-only">Choose one answer</legend>${optionMarkup(question, index, selected, revealed)}</fieldset>${revealed ? feedbackMarkup(question, selected) : ""}</article>
+    <nav class="exam-actions" aria-label="Question navigation"><button data-action="previous" ${index === 0 ? "disabled" : ""}>Previous</button>${primary}</nav>
+    <section class="navigator"><div class="navigator-title"><h2>Question navigator</h2><button class="text-button" data-action="submit">Submit exam</button></div><div class="question-grid">${navigatorMarkup(index)}</div></section>`;
   startTimer();
-  if (focusAnswer) requestAnimationFrame(() => main.querySelector(`input[name="answer"][value="${focusAnswer}"]`)?.focus());
+  if (focusFeedback) requestAnimationFrame(() => main.querySelector("[data-feedback]")?.focus());
+  else if (focusAnswer) requestAnimationFrame(() => main.querySelector(`input[name="answer"][value="${focusAnswer}"]`)?.focus());
 }
 
 function review() {
@@ -154,6 +202,7 @@ document.addEventListener("click", (event) => {
     case "home": setRoute("home"); break;
     case "restart": restart(); break;
     case "previous": attempt = navigateQuestion(attempt, attempt.currentQuestion - 1, questions.length); persist(); exam(); break;
+    case "reveal": attempt = revealAnswer(attempt, attempt.currentQuestion); persist(); exam({ focusFeedback: true }); break;
     case "next": if (attempt.currentQuestion < questions.length - 1) { attempt = navigateQuestion(attempt, attempt.currentQuestion + 1, questions.length); persist(); exam(); } break;
     case "submit": submit(); break;
   }
