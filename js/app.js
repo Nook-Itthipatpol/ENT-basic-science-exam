@@ -1,14 +1,18 @@
 import { questions } from "./questions.js";
 import { attemptStore, summaryStore } from "./storage.js";
 import { answeredCount, calculateScore, createAttempt, formatCountdown, getReviewStatus, getTimeRemaining, isRevealed, navigateQuestion, pauseTimer, recordAnswer, resumeTimer, revealAnswer, sanitizeAttempt, unansweredIndices } from "./logic.js";
+import { getSession, isSyncConfigured, onAuthChange, sendMagicLink, signOut } from "./sync.js";
 
 const main = document.querySelector("#app-main");
 const modalRoot = document.querySelector("#modal-root");
+const syncBar = document.querySelector("#sync-bar");
 let attempt = null;
 let latestSummary = null;
 let timer = null;
 let modalOpener = null;
 let isolatedBackground = [];
+let syncSession = null;
+let syncNotice = "";
 
 const esc = (value) => String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
 const persist = () => attemptStore.save(attempt);
@@ -33,6 +37,24 @@ function startTimer() {
   };
   update();
   timer = window.setInterval(update, 1000);
+}
+
+function renderSyncBar() {
+  if (!syncBar || !isSyncConfigured()) return;
+  syncBar.innerHTML = syncSession
+    ? `<span>Synced as ${esc(syncSession.user.email)}</span><button class="text-button" data-action="sync-out">Sign out</button>`
+    : `<form data-sync-form><label class="sr-only" for="sync-email">Email for sign-in link</label><input id="sync-email" type="email" name="email" placeholder="you@example.com" required/><button class="text-button" type="submit">Sync across devices</button></form>${syncNotice ? `<p class="sync-notice">${esc(syncNotice)}</p>` : ""}`;
+}
+
+function afterAuthChange(session) {
+  syncSession = session;
+  renderSyncBar();
+  if (!session) return;
+  Promise.all([attemptStore.load(), summaryStore.load()]).then(([savedAttempt, summary]) => {
+    attempt = savedAttempt ? sanitizeAttempt(savedAttempt, questions.length) : null;
+    latestSummary = summary;
+    render();
+  });
 }
 
 function home() {
@@ -205,8 +227,20 @@ document.addEventListener("click", (event) => {
     case "reveal": attempt = revealAnswer(attempt, attempt.currentQuestion); persist(); exam({ focusFeedback: true }); break;
     case "next": if (attempt.currentQuestion < questions.length - 1) { attempt = navigateQuestion(attempt, attempt.currentQuestion + 1, questions.length); persist(); exam(); } break;
     case "submit": submit(); break;
+    case "sync-out": signOut(); break;
   }
+});
+document.addEventListener("submit", (event) => {
+  if (!event.target.matches("[data-sync-form]")) return;
+  event.preventDefault();
+  const email = new FormData(event.target).get("email");
+  syncNotice = "Sending link…"; renderSyncBar();
+  sendMagicLink(email)
+    .then(() => { syncNotice = "Check your email for a sign-in link."; renderSyncBar(); })
+    .catch(() => { syncNotice = "Could not send the link. Try again later."; renderSyncBar(); });
 });
 window.addEventListener("hashchange", render);
 
 Promise.all([attemptStore.load(), summaryStore.load()]).then(([savedAttempt, summary]) => { attempt = sanitizeAttempt(savedAttempt, questions.length); latestSummary = summary; if (!savedAttempt) attempt = null; render(); });
+getSession().then(afterAuthChange);
+onAuthChange(afterAuthChange);

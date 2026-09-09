@@ -31,7 +31,9 @@ test("prefers window.storage over localStorage for attempt reads and writes", as
   assert.deepEqual(await attemptStore.load(), { currentQuestion: 2 });
   await attemptStore.save({ answers: { 0: "B" } });
 
-  assert.equal(preferred.value(ATTEMPT_KEY), JSON.stringify({ answers: { 0: "B" } }));
+  const saved = JSON.parse(preferred.value(ATTEMPT_KEY));
+  assert.deepEqual(saved.answers, { 0: "B" });
+  assert.equal(typeof saved.updatedAt, "number", "save stamps updatedAt for last-write-wins sync");
   assert.equal(fallback.value(ATTEMPT_KEY), JSON.stringify({ currentQuestion: 1 }));
 });
 
@@ -42,8 +44,10 @@ test("falls back to localStorage when window.storage is unavailable", async () =
 
   await summaryStore.save(summary);
 
-  assert.equal(fallback.value(SUMMARY_KEY), JSON.stringify(summary));
-  assert.deepEqual(await summaryStore.load(), summary);
+  const saved = JSON.parse(fallback.value(SUMMARY_KEY));
+  assert.deepEqual({ score: saved.score, total: saved.total, submittedAt: saved.submittedAt }, summary);
+  const loaded = await summaryStore.load();
+  assert.deepEqual({ score: loaded.score, total: loaded.total, submittedAt: loaded.submittedAt }, summary);
 });
 
 test("loads null for missing or corrupt persisted JSON", async () => {
@@ -64,6 +68,7 @@ test("clearing an attempt removes its state and permits a clean replacement", as
   assert.equal(await attemptStore.load(), null);
 
   await attemptStore.save(replacement);
-  assert.deepEqual(await attemptStore.load(), replacement);
+  const loaded = await attemptStore.load();
+  assert.deepEqual({ ...loaded, updatedAt: undefined }, { ...replacement, updatedAt: undefined });
   assert.deepEqual(preferred.calls.filter(([method]) => method === "removeItem"), [["removeItem", ATTEMPT_KEY]]);
 });
