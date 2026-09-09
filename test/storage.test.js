@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attemptStore, summaryStore } from "../js/storage.js";
+import { DEFAULT_SET_ID, attemptStore, summaryStore } from "../js/storage.js";
 
 const ATTEMPT_KEY = "ent-r1-set-02-attempt";
 const SUMMARY_KEY = "ent-r1-set-02-summary";
@@ -71,4 +71,29 @@ test("clearing an attempt removes its state and permits a clean replacement", as
   const loaded = await attemptStore.load();
   assert.deepEqual({ ...loaded, updatedAt: undefined }, { ...replacement, updatedAt: undefined });
   assert.deepEqual(preferred.calls.filter(([method]) => method === "removeItem"), [["removeItem", ATTEMPT_KEY]]);
+});
+
+test("the default set id reuses Set 02's original keys, so old local data is never orphaned", () => {
+  assert.equal(DEFAULT_SET_ID, "set-02");
+  assert.equal(ATTEMPT_KEY, "ent-r1-set-02-attempt");
+  assert.equal(SUMMARY_KEY, "ent-r1-set-02-summary");
+});
+
+test("each set is stored under its own key, isolated from other sets", async () => {
+  const storage = createStorage();
+  setWindow({ storage, localStorage: createStorage() });
+
+  await attemptStore.save({ answers: { 0: "A" }, currentQuestion: 0 }, "set-02");
+  await attemptStore.save({ answers: { 0: "B" }, currentQuestion: 0 }, "set-03");
+
+  const set02 = await attemptStore.load("set-02");
+  const set03 = await attemptStore.load("set-03");
+  assert.deepEqual(set02.answers, { 0: "A" });
+  assert.deepEqual(set03.answers, { 0: "B" });
+  assert.ok(storage.value("ent-r1-set-03-attempt"), "set-03 gets its own storage key");
+  assert.equal(storage.value(ATTEMPT_KEY), JSON.stringify(set02));
+
+  await attemptStore.clear("set-03");
+  assert.equal(await attemptStore.load("set-03"), null);
+  assert.deepEqual((await attemptStore.load("set-02")).answers, { 0: "A" }, "clearing one set leaves the other untouched");
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { QUESTION_COUNT, questions } from "../js/questions.js";
+import { QUESTION_COUNT, questions } from "../js/sets/set-02.js";
 
 const ANSWER_LABELS = ["A", "B", "C", "D", "E"];
 const ALLOWED_YEARS = new Set([2021, 2022, 2023]);

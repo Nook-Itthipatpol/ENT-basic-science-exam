@@ -1,7 +1,7 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabase-config.js";
 
 const SUPABASE_JS_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
-export const SET_ID = "set-02";
+export const SET_ID = "set-02"; // default set_id for callers that don't sync more than one set
 
 const isPlaceholder = (value) => !value || value.startsWith("YOUR-");
 export const isSyncConfigured = () => !isPlaceholder(SUPABASE_URL) && !isPlaceholder(SUPABASE_ANON_KEY);
@@ -59,9 +59,9 @@ export async function deleteRow(client, table, userId, setId = SET_ID) {
 
 function makeSync(table) {
   return {
-    pull: () => withClient(async (client) => pullRow(client, table, await currentUserId(client)), null),
-    push: (payload) => withClient(async (client) => { const userId = await currentUserId(client); if (userId) await pushRow(client, table, userId, payload); }, undefined),
-    clear: () => withClient(async (client) => { const userId = await currentUserId(client); if (userId) await deleteRow(client, table, userId); }, undefined)
+    pull: (setId = SET_ID) => withClient(async (client) => pullRow(client, table, await currentUserId(client), setId), null),
+    push: (payload, setId = SET_ID) => withClient(async (client) => { const userId = await currentUserId(client); if (userId) await pushRow(client, table, userId, payload, setId); }, undefined),
+    clear: (setId = SET_ID) => withClient(async (client) => { const userId = await currentUserId(client); if (userId) await deleteRow(client, table, userId, setId); }, undefined)
   };
 }
 

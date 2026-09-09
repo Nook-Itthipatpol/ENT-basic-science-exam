@@ -1,13 +1,14 @@
-import { questions } from "./questions.js";
-import { attemptStore, summaryStore } from "./storage.js";
+import { SET_MANIFEST, findSet, loadSet } from "./sets.js";
+import { activeSetId, attemptStore, summaryStore } from "./storage.js";
 import { answeredCount, calculateScore, createAttempt, formatCountdown, getReviewStatus, getTimeRemaining, isRevealed, navigateQuestion, pauseTimer, recordAnswer, resumeTimer, revealAnswer, sanitizeAttempt, unansweredIndices } from "./logic.js";
 import { getSession, isSyncConfigured, onAuthChange, sendMagicLink, signOut } from "./sync.js";
 
 const main = document.querySelector("#app-main");
 const modalRoot = document.querySelector("#modal-root");
 const syncBar = document.querySelector("#sync-bar");
+let activeSet = null; // manifest metadata plus .questions for the set currently open
 let attempt = null;
-let latestSummary = null;
+let setStates = {}; // { [setId]: { attempt, summary } } for every active set, feeds the home screen
 let timer = null;
 let modalOpener = null;
 let isolatedBackground = [];
@@ -15,10 +16,35 @@ let syncSession = null;
 let syncNotice = "";
 
 const esc = (value) => String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
-const persist = () => attemptStore.save(attempt);
+const setLabel = (setId) => `Set ${setId.replace("set-", "")}`;
 const setRoute = (route) => { location.hash = route; };
 const progress = () => answeredCount(attempt?.answers || {});
 const formatExamYears = (examYears) => `Exam year${examYears.length === 1 ? "" : "s"}: ${examYears.join(", ")}`;
+
+function persist() {
+  if (!activeSet) return;
+  attemptStore.save(attempt, activeSet.id);
+  setStates[activeSet.id] = { ...(setStates[activeSet.id] || {}), attempt };
+}
+
+async function loadSetStates() {
+  const active = SET_MANIFEST.filter((set) => set.status === "active");
+  const loaded = await Promise.all(active.map((set) => Promise.all([attemptStore.load(set.id), summaryStore.load(set.id)])));
+  setStates = Object.fromEntries(active.map((set, index) => [set.id, { attempt: loaded[index][0], summary: loaded[index][1] }]));
+}
+
+async function openSet(setId, { fresh } = {}) {
+  const loaded = await loadSet(setId);
+  if (!loaded) return;
+  activeSet = loaded;
+  activeSetId.save(setId);
+  const stored = fresh ? null : setStates[setId]?.attempt;
+  attempt = stored
+    ? sanitizeAttempt(stored, loaded.questionCount, Date.now(), loaded.id, loaded.durationSeconds)
+    : createAttempt(Date.now(), loaded.id, loaded.durationSeconds);
+  persist();
+  setRoute("exam");
+}
 
 function stopTimer() { if (timer) window.clearInterval(timer); timer = null; }
 function startTimer() {
@@ -50,25 +76,33 @@ function afterAuthChange(session) {
   syncSession = session;
   renderSyncBar();
   if (!session) return;
-  Promise.all([attemptStore.load(), summaryStore.load()]).then(([savedAttempt, summary]) => {
-    attempt = savedAttempt ? sanitizeAttempt(savedAttempt, questions.length) : null;
-    latestSummary = summary;
+  loadSetStates().then(() => {
+    const state = activeSet && setStates[activeSet.id];
+    if (state) attempt = sanitizeAttempt(state.attempt, activeSet.questionCount, Date.now(), activeSet.id, activeSet.durationSeconds);
     render();
   });
 }
 
+function setCardMarkup(meta) {
+  const state = setStates[meta.id] || {};
+  const active = state.attempt && !state.attempt.submittedAt;
+  const storedProgress = active ? answeredCount(state.attempt.answers || {}) : 0;
+  const last = state.summary ? `${state.summary.score}/${meta.questionCount} (${state.summary.percent}%)` : "No completed attempt yet";
+  const label = setLabel(meta.id);
+  return `<article class="set-card active-card"><div class="set-card-top"><span class="set-label">${esc(label)}</span><span class="status">Active</span></div><h2>${esc(meta.title)}</h2><p>${meta.questionCount} questions · ${Math.round(meta.durationSeconds / 60)} minutes · fixed order</p>${active ? `<div class="card-progress"><span>${storedProgress} of ${meta.questionCount} answered</span><div class="progress-track"><i style="width:${storedProgress / meta.questionCount * 100}%"></i></div></div>` : ""}<p class="latest-score">Latest score: ${esc(last)}</p><button class="primary" data-action="${active ? "resume" : "start"}" data-set="${meta.id}">${active ? "Resume attempt" : `Start ${esc(label)}`}</button>${active ? `<button class="text-button" data-action="restart" data-set="${meta.id}">Restart attempt</button>` : ""}</article>`;
+}
+
+function soonCardMarkup(meta) {
+  const label = setLabel(meta.id);
+  return `<article class="set-card disabled-card" aria-label="${esc(label)}, coming soon and unavailable"><div class="set-card-top"><span class="set-label">${esc(label)}</span><span class="status muted">Coming soon</span></div><h2>${esc(meta.title)}</h2><p>New question set in preparation.</p><button disabled>Coming soon — unavailable</button></article>`;
+}
+
 function home() {
   stopTimer();
-  if (attempt && !attempt.submittedAt && attempt.pausedAt) { attempt = resumeTimer(attempt); persist(); }
-  const active = attempt && !attempt.submittedAt;
-  const storedProgress = active ? progress() : 0;
-  const last = latestSummary ? `${latestSummary.score}/${questions.length} (${latestSummary.percent}%)` : "No completed attempt yet";
+  if (activeSet && attempt && !attempt.submittedAt && attempt.pausedAt) { attempt = resumeTimer(attempt); persist(); }
   main.innerHTML = `
     <section class="hero"><p class="eyebrow">ENT R1 · Basic Science</p><h1>Mock examinations</h1><p>Focused single-best-answer practice in a calm, exam-like workspace.</p></section>
-    <section class="sets" aria-label="Available mock sets">
-      <article class="set-card active-card"><div class="set-card-top"><span class="set-label">Set 02</span><span class="status">Active</span></div><h2>Basic Science Mock</h2><p>61 questions · 90 minutes · fixed order</p>${active ? `<div class="card-progress"><span>${storedProgress} of ${questions.length} answered</span><div class="progress-track"><i style="width:${storedProgress / questions.length * 100}%"></i></div></div>` : ""}<p class="latest-score">Latest score: ${esc(last)}</p><button class="primary" data-action="${active ? "resume" : "start"}">${active ? "Resume attempt" : "Start Set 02"}</button>${active ? '<button class="text-button" data-action="restart">Restart attempt</button>' : ""}</article>
-      ${["03", "04"].map((set) => `<article class="set-card disabled-card" aria-label="Set ${set}, coming soon and unavailable"><div class="set-card-top"><span class="set-label">Set ${set}</span><span class="status muted">Coming soon</span></div><h2>Basic Science Mock</h2><p>New question set in preparation.</p><button disabled>Coming soon — unavailable</button></article>`).join("")}
-    </section>`;
+    <section class="sets" aria-label="Available mock sets">${SET_MANIFEST.map((meta) => (meta.status === "active" ? setCardMarkup(meta) : soonCardMarkup(meta))).join("")}</section>`;
 }
 
 function syncTimerState() {
@@ -98,7 +132,7 @@ function feedbackMarkup(question, selected) {
 }
 
 function navigatorMarkup(index) {
-  return questions.map((question, itemIndex) => {
+  return activeSet.questions.map((question, itemIndex) => {
     const answer = attempt.answers[itemIndex];
     const revealed = isRevealed(attempt, itemIndex);
     const state = revealed ? (answer === question.correctAnswer ? "correct" : "incorrect") : answer ? "answered" : "";
@@ -108,8 +142,9 @@ function navigatorMarkup(index) {
 }
 
 function exam({ focusAnswer, focusFeedback } = {}) {
-  if (!attempt) attempt = createAttempt();
+  if (!activeSet || !attempt) { setRoute("home"); return; }
   syncTimerState();
+  const questions = activeSet.questions;
   const index = attempt.currentQuestion;
   const question = questions[index];
   const selected = attempt.answers[index];
@@ -131,11 +166,13 @@ function exam({ focusAnswer, focusFeedback } = {}) {
 }
 
 function review() {
+  if (!activeSet || !attempt) { setRoute("home"); return; }
   stopTimer();
+  const questions = activeSet.questions;
   const score = calculateScore(questions, attempt.answers);
   if (attempt.score !== score) { attempt = { ...attempt, score }; persist(); }
   const percentage = Math.round(score / questions.length * 100);
-  main.innerHTML = `<section class="results-head"><p class="eyebrow">Set 02 completed</p><h1>${score} / ${questions.length}</h1><p>${percentage}% correct · Your full answer review is below.</p><button class="primary" data-action="home">Return home</button><button class="text-button" data-action="restart">Start a fresh attempt</button></section><section class="review-list" aria-label="Answer review">${questions.map((question, index) => {
+  main.innerHTML = `<section class="results-head"><p class="eyebrow">${esc(setLabel(activeSet.id))} completed</p><h1>${score} / ${questions.length}</h1><p>${percentage}% correct · Your full answer review is below.</p><button class="primary" data-action="home">Return home</button><button class="text-button" data-action="restart" data-set="${activeSet.id}">Start a fresh attempt</button></section><section class="review-list" aria-label="Answer review">${questions.map((question, index) => {
     const answer = attempt.answers[index]; const status = getReviewStatus(question, answer); const correct = status === "correct";
     const choice = (letter) => question.choices.find((item) => item.label === letter)?.text || "Not answered";
     return `<article class="review-card ${correct ? "correct" : "incorrect"}"><div class="review-meta"><span>Question ${index + 1}</span><span>${formatExamYears(question.examYears)}</span><span>${status === "correct" ? "Correct" : status === "incorrect" ? "Incorrect" : "Unanswered"}</span></div><h2>${esc(question.question)}</h2><p><strong>Your answer:</strong> ${answer ? `${esc(answer)}. ${esc(choice(answer))}` : "Not answered"}</p><p><strong>Correct answer:</strong> ${esc(question.correctAnswer)}. ${esc(choice(question.correctAnswer))}</p><div class="review-note"><strong>High-yield review</strong><p>${esc(question.highYieldReview)}</p></div></article>`;
@@ -180,28 +217,33 @@ function confirmModal({ title, body, actionLabel, onConfirm }) {
   dialog.querySelector("[data-modal-confirm]").focus();
 }
 
-function restart() {
-  confirmModal({ title: "Restart Set 02?", body: "This clears all current answers and resets the 90-minute timer. Your latest completed score stays on the home screen.", actionLabel: "Restart", onConfirm: () => { attempt = createAttempt(); persist(); setRoute("exam"); } });
+function restart(setId) {
+  const meta = findSet(setId);
+  const minutes = Math.round((meta?.durationSeconds ?? activeSet?.durationSeconds ?? 0) / 60);
+  confirmModal({ title: `Restart ${setLabel(setId)}?`, body: `This clears all current answers and resets the ${minutes}-minute timer. Your latest completed score stays on the home screen.`, actionLabel: "Restart", onConfirm: () => openSet(setId, { fresh: true }) });
 }
 
 function submit() {
-  const missing = unansweredIndices(questions, attempt.answers);
+  const missing = unansweredIndices(activeSet.questions, attempt.answers);
   const finish = () => {
-    attempt.score = calculateScore(questions, attempt.answers); attempt.submittedAt = Date.now();
-    latestSummary = { score: attempt.score, percent: Math.round(attempt.score / questions.length * 100), completedAt: attempt.submittedAt };
-    persist(); summaryStore.save(latestSummary); setRoute("review");
+    attempt.score = calculateScore(activeSet.questions, attempt.answers); attempt.submittedAt = Date.now();
+    const summary = { score: attempt.score, percent: Math.round(attempt.score / activeSet.questionCount * 100), completedAt: attempt.submittedAt };
+    persist(); summaryStore.save(summary, activeSet.id);
+    setStates[activeSet.id] = { attempt, summary };
+    setRoute("review");
   };
   if (missing.length) confirmModal({ title: "Submit with unanswered questions?", body: `${missing.length} question${missing.length === 1 ? " is" : "s are"} unanswered. You can still submit and review every answer.`, actionLabel: "Submit exam", onConfirm: finish }); else finish();
 }
 
 function reconcileSubmittedAttempt() {
-  if (!attempt?.submittedAt) return;
-  const score = calculateScore(questions, attempt.answers);
-  const summary = { score, percent: Math.round(score / questions.length * 100), completedAt: attempt.submittedAt };
+  if (!activeSet || !attempt?.submittedAt) return;
+  const score = calculateScore(activeSet.questions, attempt.answers);
+  const summary = { score, percent: Math.round(score / activeSet.questionCount * 100), completedAt: attempt.submittedAt };
   if (attempt.score !== score) { attempt = { ...attempt, score }; persist(); }
-  if (!latestSummary || latestSummary.score !== summary.score || latestSummary.percent !== summary.percent || latestSummary.completedAt !== summary.completedAt) {
-    latestSummary = summary;
-    summaryStore.save(summary);
+  const state = setStates[activeSet.id] || {};
+  if (!state.summary || state.summary.score !== summary.score || state.summary.percent !== summary.percent || state.summary.completedAt !== summary.completedAt) {
+    summaryStore.save(summary, activeSet.id);
+    setStates[activeSet.id] = { ...state, summary };
   }
 }
 
@@ -217,15 +259,16 @@ document.addEventListener("change", (event) => {
 });
 document.addEventListener("click", (event) => {
   const control = event.target.closest("[data-action], [data-question]"); if (!control) return;
-  if (control.dataset.question !== undefined) { attempt = navigateQuestion(attempt, control.dataset.question, questions.length); persist(); exam(); return; }
+  if (control.dataset.question !== undefined) { attempt = navigateQuestion(attempt, control.dataset.question, activeSet.questions.length); persist(); exam(); return; }
+  const setId = control.dataset.set;
   switch (control.dataset.action) {
-    case "start": attempt = createAttempt(); persist(); setRoute("exam"); break;
-    case "resume": setRoute("exam"); break;
+    case "start": openSet(setId, { fresh: true }); break;
+    case "resume": openSet(setId, {}); break;
     case "home": setRoute("home"); break;
-    case "restart": restart(); break;
-    case "previous": attempt = navigateQuestion(attempt, attempt.currentQuestion - 1, questions.length); persist(); exam(); break;
+    case "restart": restart(setId); break;
+    case "previous": attempt = navigateQuestion(attempt, attempt.currentQuestion - 1, activeSet.questions.length); persist(); exam(); break;
     case "reveal": attempt = revealAnswer(attempt, attempt.currentQuestion); persist(); exam({ focusFeedback: true }); break;
-    case "next": if (attempt.currentQuestion < questions.length - 1) { attempt = navigateQuestion(attempt, attempt.currentQuestion + 1, questions.length); persist(); exam(); } break;
+    case "next": if (attempt.currentQuestion < activeSet.questions.length - 1) { attempt = navigateQuestion(attempt, attempt.currentQuestion + 1, activeSet.questions.length); persist(); exam(); } break;
     case "submit": submit(); break;
     case "sync-out": signOut(); break;
   }
@@ -241,6 +284,17 @@ document.addEventListener("submit", (event) => {
 });
 window.addEventListener("hashchange", render);
 
-Promise.all([attemptStore.load(), summaryStore.load()]).then(([savedAttempt, summary]) => { attempt = sanitizeAttempt(savedAttempt, questions.length); latestSummary = summary; if (!savedAttempt) attempt = null; render(); });
+async function boot() {
+  await loadSetStates();
+  const route = location.hash.slice(1) || "home";
+  const savedSetId = (route === "exam" || route === "review") && await activeSetId.load();
+  const stored = savedSetId && setStates[savedSetId]?.attempt;
+  if (stored) {
+    const loaded = await loadSet(savedSetId);
+    if (loaded) { activeSet = loaded; attempt = sanitizeAttempt(stored, loaded.questionCount, Date.now(), loaded.id, loaded.durationSeconds); }
+  }
+  render();
+}
+boot();
 getSession().then(afterAuthChange);
 onAuthChange(afterAuthChange);

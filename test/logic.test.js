@@ -27,7 +27,7 @@ const questions = [
 test("a new attempt starts cleanly at the first question", () => {
   const now = 1_700_000_000_000;
   assert.deepEqual(createAttempt(now), {
-    answers: {}, revealed: {}, currentQuestion: 0, startedAt: now, pausedMs: 0, pausedAt: null, submittedAt: null, score: null
+    setId: null, durationSeconds: EXAM_DURATION_SECONDS, answers: {}, revealed: {}, currentQuestion: 0, startedAt: now, pausedMs: 0, pausedAt: null, submittedAt: null, score: null
   });
 });
 
@@ -64,7 +64,7 @@ test("countdown handles the 90-minute start and negative overtime", () => {
 test("creating a replacement attempt resets answers, score, submission, and timer", () => {
   const restarted = createAttempt(9_999);
   assert.deepEqual(restarted, {
-    answers: {}, revealed: {}, currentQuestion: 0, startedAt: 9_999, pausedMs: 0, pausedAt: null, submittedAt: null, score: null
+    setId: null, durationSeconds: EXAM_DURATION_SECONDS, answers: {}, revealed: {}, currentQuestion: 0, startedAt: 9_999, pausedMs: 0, pausedAt: null, submittedAt: null, score: null
   });
 });
 
@@ -148,4 +148,18 @@ test("an attempt saved before per-question explanations still loads", () => {
   assert.equal(restored.pausedMs, 0);
   assert.equal(restored.pausedAt, null);
   assert.equal(getTimeRemaining(restored, 60_000), EXAM_DURATION_SECONDS - 60);
+});
+
+test("an attempt carries the id and duration of the set it belongs to", () => {
+  const attempt = createAttempt(0, "set-03", 45 * 60);
+  assert.equal(attempt.setId, "set-03");
+  assert.equal(attempt.durationSeconds, 45 * 60);
+  assert.equal(getTimeRemaining(attempt, 0), 45 * 60, "the countdown uses the set's own duration, not the 90-minute default");
+});
+
+test("sanitizing a stored attempt reattaches the set id and duration passed in", () => {
+  const restored = sanitizeAttempt({ answers: { 0: "B" }, currentQuestion: 0, startedAt: 0 }, questions.length, 0, "set-03", 45 * 60);
+  assert.equal(restored.setId, "set-03");
+  assert.equal(restored.durationSeconds, 45 * 60);
+  assert.equal(getTimeRemaining(restored, 0), 45 * 60);
 });

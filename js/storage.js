@@ -1,7 +1,10 @@
 import { attemptSync, resolveByUpdatedAt, summarySync } from "./sync.js";
 
-const ATTEMPT_KEY = "ent-r1-set-02-attempt";
-const SUMMARY_KEY = "ent-r1-set-02-summary";
+// ent-r1-<setId>-<kind>. Set 02's keys are unchanged from before per-set
+// storage existed (ent-r1-set-02-attempt/-summary), so existing local data
+// keeps loading under this scheme with no migration step needed.
+export const DEFAULT_SET_ID = "set-02";
+const keyFor = (setId, kind) => `ent-r1-${setId}-${kind}`;
 
 async function nativeGet(key) {
   if (window.storage?.getItem) return window.storage.getItem(key);
@@ -22,27 +25,37 @@ async function read(key) {
   try { const value = await nativeGet(key); return value ? JSON.parse(value) : null; } catch { return null; }
 }
 
-async function loadWithSync(key, sync) {
+async function loadWithSync(setId, kind, sync) {
+  const key = keyFor(setId, kind);
   const local = await read(key);
-  const remote = await sync.pull().catch(() => null);
+  const remote = await sync.pull(setId).catch(() => null);
   const winner = resolveByUpdatedAt(local, remote);
   if (winner && winner !== local) await nativeSet(key, JSON.stringify(winner)).catch(() => {});
   return winner;
 }
 
-function saveWithSync(key, sync, value) {
+function saveWithSync(setId, kind, sync, value) {
+  const key = keyFor(setId, kind);
   const stamped = { ...value, updatedAt: Date.now() };
-  sync.push(stamped).catch(() => {});
+  sync.push(stamped, setId).catch(() => {});
   return nativeSet(key, JSON.stringify(stamped)).catch(() => {});
 }
 
 export const attemptStore = {
-  load: () => loadWithSync(ATTEMPT_KEY, attemptSync),
-  save: (attempt) => saveWithSync(ATTEMPT_KEY, attemptSync, attempt),
-  clear: () => { attemptSync.clear().catch(() => {}); return nativeRemove(ATTEMPT_KEY).catch(() => {}); }
+  load: (setId = DEFAULT_SET_ID) => loadWithSync(setId, "attempt", attemptSync),
+  save: (attempt, setId = DEFAULT_SET_ID) => saveWithSync(setId, "attempt", attemptSync, attempt),
+  clear: (setId = DEFAULT_SET_ID) => { attemptSync.clear(setId).catch(() => {}); return nativeRemove(keyFor(setId, "attempt")).catch(() => {}); }
 };
 
 export const summaryStore = {
-  load: () => loadWithSync(SUMMARY_KEY, summarySync),
-  save: (summary) => saveWithSync(SUMMARY_KEY, summarySync, summary)
+  load: (setId = DEFAULT_SET_ID) => loadWithSync(setId, "summary", summarySync),
+  save: (summary, setId = DEFAULT_SET_ID) => saveWithSync(setId, "summary", summarySync, summary)
+};
+
+// Which set's exam is currently open, so a page reload on #exam/#review knows
+// what to load. Purely a local UI convenience — never synced.
+const ACTIVE_SET_KEY = "ent-r1-active-set";
+export const activeSetId = {
+  load: () => read(ACTIVE_SET_KEY),
+  save: (setId) => nativeSet(ACTIVE_SET_KEY, JSON.stringify(setId)).catch(() => {})
 };

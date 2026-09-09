@@ -1,7 +1,7 @@
-export const EXAM_DURATION_SECONDS = 90 * 60;
+export const EXAM_DURATION_SECONDS = 90 * 60; // fallback for a set that doesn't carry its own duration
 
-export function createAttempt(now = Date.now()) {
-  return { answers: {}, revealed: {}, currentQuestion: 0, startedAt: now, pausedMs: 0, pausedAt: null, submittedAt: null, score: null };
+export function createAttempt(now = Date.now(), setId = null, durationSeconds = EXAM_DURATION_SECONDS) {
+  return { setId, durationSeconds, answers: {}, revealed: {}, currentQuestion: 0, startedAt: now, pausedMs: 0, pausedAt: null, submittedAt: null, score: null };
 }
 
 export function isRevealed(attempt, questionIndex) {
@@ -44,7 +44,7 @@ export function getElapsedSeconds(attempt, now = Date.now()) {
 }
 
 export function getTimeRemaining(attempt, now = Date.now()) {
-  return EXAM_DURATION_SECONDS - getElapsedSeconds(attempt, now);
+  return (attempt.durationSeconds ?? EXAM_DURATION_SECONDS) - getElapsedSeconds(attempt, now);
 }
 
 export function formatCountdown(seconds) {
@@ -68,8 +68,8 @@ export function getReviewStatus(question, answer) {
   return answer === question.correctAnswer ? "correct" : "incorrect";
 }
 
-export function sanitizeAttempt(value, questionCount, now = Date.now()) {
-  const fresh = createAttempt(now);
+export function sanitizeAttempt(value, questionCount, now = Date.now(), setId = null, durationSeconds = EXAM_DURATION_SECONDS) {
+  const fresh = createAttempt(now, setId, durationSeconds);
   if (!value || typeof value !== "object") return fresh;
   const answers = {};
   Object.entries(value.answers || {}).forEach(([key, answer]) => {
@@ -82,6 +82,8 @@ export function sanitizeAttempt(value, questionCount, now = Date.now()) {
     if (flag && answers[index]) revealed[index] = true;
   });
   return {
+    setId,
+    durationSeconds,
     answers,
     revealed,
     currentQuestion: Math.min(Math.max(Number(value.currentQuestion) || 0, 0), questionCount - 1),
