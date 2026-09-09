@@ -5,5 +5,5 @@
 // Replace both placeholders after creating the Supabase project and running
 // the schema. Leaving them as-is keeps the app in local-only mode: no
 // network calls are made and everything still works from localStorage.
-export const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-export const SUPABASE_ANON_KEY = "YOUR-SUPABASE-ANON-KEY";
+export const SUPABASE_URL = "https://qwlemnpgkyzqjyrjtiwo.supabase.co";
+export const SUPABASE_ANON_KEY = "sb_publishable_jPyrt3HRreurUaniN99OYA_WZd4Po1n";
