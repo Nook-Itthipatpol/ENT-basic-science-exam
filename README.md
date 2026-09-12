@@ -28,7 +28,7 @@ The app is fully usable offline with no setup — every attempt and score lives 
 3. In **Authentication → Providers**, leave Email enabled and turn off "Confirm email" if you want the magic link to sign a first-time visitor straight in.
 4. In **Authentication → URL Configuration**, add this site's deployed URL (and `http://localhost:3000` for local preview, if you use `npx serve .`) as a redirect URL.
 5. Copy the project's API URL and anon/public key into `js/supabase-config.js` (this repo already carries a live pair). Commit that file — the anon key is publishable by design and only ever grants what the RLS policies above allow. Never put the `service_role` key there.
-6. Redeploy. A "Sync across devices" box appears in the header; entering an email sends a magic link, and once signed in, attempts and scores sync last-write-wins by timestamp between devices.
+6. Redeploy. A "Sync across devices" box appears in the header; entering an email sends a magic link, and once signed in, attempts and scores sync last-write-wins by timestamp between devices. Remote writes are coalesced — rapid answering costs a handful of them rather than one per click — and anything still queued is flushed when the tab is hidden or closed.
 
 ## Deploy to Vercel
 

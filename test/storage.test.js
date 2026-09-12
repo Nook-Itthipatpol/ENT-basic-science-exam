@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_SET_ID, attemptStore, summaryStore } from "../js/storage.js";
+import { DEFAULT_SET_ID, attemptStore, createPushQueue, summaryStore } from "../js/storage.js";
 
 const ATTEMPT_KEY = "ent-r1-set-02-attempt";
 const SUMMARY_KEY = "ent-r1-set-02-summary";
@@ -96,4 +96,56 @@ test("each set is stored under its own key, isolated from other sets", async () 
   await attemptStore.clear("set-03");
   assert.equal(await attemptStore.load("set-03"), null);
   assert.deepEqual((await attemptStore.load("set-02")).answers, { 0: "A" }, "clearing one set leaves the other untouched");
+});
+
+function recordingSync() {
+  const pushes = [];
+  return { pushes, push: async (value, setId) => { pushes.push({ value, setId }); } };
+}
+
+const tick = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("repeated saves to one key coalesce into a single remote push", async () => {
+  const queue = createPushQueue(20);
+  const sync = recordingSync();
+
+  for (const answer of ["A", "B", "C"]) queue.queue("k", sync, "set-02", { answer });
+  assert.equal(sync.pushes.length, 0, "nothing goes out while the user is still clicking");
+
+  await tick(40);
+  assert.equal(sync.pushes.length, 1, "one write per quiet period, not one per click");
+  assert.deepEqual(sync.pushes[0], { value: { answer: "C" }, setId: "set-02" }, "the latest state wins");
+});
+
+test("different keys are debounced independently and flushAll sends every pending push", async () => {
+  const queue = createPushQueue(10_000);
+  const attempt = recordingSync();
+  const summary = recordingSync();
+
+  queue.queue("ent-r1-set-02-attempt", attempt, "set-02", { answers: { 0: "A" } });
+  queue.queue("ent-r1-set-02-summary", summary, "set-02", { score: 1 });
+  assert.equal(queue.pendingCount(), 2);
+
+  queue.flushAll();
+  assert.equal(queue.pendingCount(), 0);
+  assert.equal(attempt.pushes.length, 1);
+  assert.equal(summary.pushes.length, 1);
+});
+
+test("cancelling a queued push stops a stale write from resurrecting a cleared row", async () => {
+  const queue = createPushQueue(20);
+  const sync = recordingSync();
+
+  queue.queue("k", sync, "set-02", { answers: { 0: "A" } });
+  queue.cancel("k");
+  await tick(40);
+  assert.equal(sync.pushes.length, 0);
+});
+
+test("saving still writes localStorage synchronously, debounce or not", async () => {
+  const storage = createStorage();
+  setWindow({ storage, localStorage: createStorage() });
+
+  await attemptStore.save({ answers: { 3: "D" } }, "set-02");
+  assert.deepEqual(JSON.parse(storage.value(ATTEMPT_KEY)).answers, { 3: "D" }, "a crash mid-attempt must not lose the local copy");
 });

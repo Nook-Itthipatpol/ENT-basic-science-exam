@@ -20,6 +20,10 @@ const setLabel = (setId) => `Set ${setId.replace("set-", "")}`;
 const setRoute = (route) => { location.hash = route; };
 const progress = () => answeredCount(attempt?.answers || {});
 const formatExamYears = (examYears) => `Exam year${examYears.length === 1 ? "" : "s"}: ${examYears.join(", ")}`;
+// Always score against the questions actually loaded, and record that total on
+// the summary so the home screen can report a score out of the same
+// denominator without having to import the set's question module.
+const percentOf = (score, total) => Math.round(score / total * 100);
 
 function persist() {
   if (!activeSet) return;
@@ -87,7 +91,7 @@ function setCardMarkup(meta) {
   const state = setStates[meta.id] || {};
   const active = state.attempt && !state.attempt.submittedAt;
   const storedProgress = active ? answeredCount(state.attempt.answers || {}) : 0;
-  const last = state.summary ? `${state.summary.score}/${meta.questionCount} (${state.summary.percent}%)` : "No completed attempt yet";
+  const last = state.summary ? `${state.summary.score}/${state.summary.total ?? meta.questionCount} (${state.summary.percent}%)` : "No completed attempt yet";
   const label = setLabel(meta.id);
   return `<article class="set-card active-card"><div class="set-card-top"><span class="set-label">${esc(label)}</span><span class="status">Active</span></div><h2>${esc(meta.title)}</h2><p>${meta.questionCount} questions · ${Math.round(meta.durationSeconds / 60)} minutes · fixed order</p>${active ? `<div class="card-progress"><span>${storedProgress} of ${meta.questionCount} answered</span><div class="progress-track"><i style="width:${storedProgress / meta.questionCount * 100}%"></i></div></div>` : ""}<p class="latest-score">Latest score: ${esc(last)}</p><button class="primary" data-action="${active ? "resume" : "start"}" data-set="${meta.id}">${active ? "Resume attempt" : `Start ${esc(label)}`}</button>${active ? `<button class="text-button" data-action="restart" data-set="${meta.id}">Restart attempt</button>` : ""}</article>`;
 }
@@ -121,6 +125,30 @@ function optionMarkup(question, selected, revealed) {
   }).join("");
 }
 
+// Selecting an option only changes four things on screen. Patching them beats
+// rebuilding main.innerHTML — a full re-render threw away the 61-button
+// navigator, restarted the countdown interval, and moved the scroll position
+// out from under the reader on a long question.
+function refreshAnswerState(answer) {
+  const index = attempt.currentQuestion;
+  const total = activeSet.questions.length;
+  const complete = progress();
+  main.querySelectorAll(".option").forEach((option) => {
+    option.classList.toggle("selected", option.querySelector("input")?.value === answer);
+  });
+  const bar = main.querySelector("[data-exam-progress]");
+  if (bar) bar.setAttribute("aria-label", `${complete} of ${total} questions answered`);
+  const counter = main.querySelector("[data-answered-count]");
+  if (counter) counter.textContent = `${complete} answered`;
+  const reveal = main.querySelector('[data-action="reveal"]');
+  if (reveal) reveal.disabled = false;
+  const navButton = main.querySelector(`.nav-question[data-question="${index}"]`);
+  if (navButton) {
+    navButton.classList.add("answered");
+    navButton.setAttribute("aria-label", navQuestionLabel(index, "answered", answer));
+  }
+}
+
 function feedbackMarkup(question, selected) {
   const correct = selected === question.correctAnswer;
   const answerText = question.choices.find((item) => item.label === question.correctAnswer)?.text || "";
@@ -131,17 +159,19 @@ function feedbackMarkup(question, selected) {
     </section>`;
 }
 
+const navQuestionLabel = (itemIndex, state, answer) =>
+  `Question ${itemIndex + 1}${state === "correct" ? ", answered correctly" : state === "incorrect" ? ", answered incorrectly" : answer ? ", answer selected" : ", unanswered"}`;
+
 function navigatorMarkup(index) {
   return activeSet.questions.map((question, itemIndex) => {
     const answer = attempt.answers[itemIndex];
     const revealed = isRevealed(attempt, itemIndex);
     const state = revealed ? (answer === question.correctAnswer ? "correct" : "incorrect") : answer ? "answered" : "";
-    const label = revealed ? (state === "correct" ? ", answered correctly" : ", answered incorrectly") : answer ? ", answer selected" : ", unanswered";
-    return `<button class="nav-question ${itemIndex === index ? "current" : ""} ${state}" aria-label="Question ${itemIndex + 1}${label}" aria-current="${itemIndex === index ? "step" : "false"}" data-question="${itemIndex}">${itemIndex + 1}</button>`;
+    return `<button class="nav-question ${itemIndex === index ? "current" : ""} ${state}" aria-label="${navQuestionLabel(itemIndex, state, answer)}" aria-current="${itemIndex === index ? "step" : "false"}" data-question="${itemIndex}">${itemIndex + 1}</button>`;
   }).join("");
 }
 
-function exam({ focusAnswer, focusFeedback } = {}) {
+function exam({ focusFeedback } = {}) {
   if (!activeSet || !attempt) { setRoute("home"); return; }
   syncTimerState();
   const questions = activeSet.questions;
@@ -156,13 +186,12 @@ function exam({ focusAnswer, focusFeedback } = {}) {
     : `<button class="primary" data-action="reveal" ${selected ? "" : "disabled"}>Submit answer</button>`;
   main.innerHTML = `
     <section class="exam-head"><button class="back-button" data-action="home">← Exit to home</button><div class="timer"><span data-timer-label>Time</span><strong data-countdown></strong></div></section>
-    <div class="exam-progress" aria-label="${complete} of ${questions.length} questions answered"><div><span>Question ${index + 1} of ${questions.length}</span><span>${complete} answered</span></div><div class="progress-track"><i style="width:${(index + 1) / questions.length * 100}%"></i></div></div>
+    <div class="exam-progress" data-exam-progress aria-label="${complete} of ${questions.length} questions answered"><div><span>Question ${index + 1} of ${questions.length}</span><span data-answered-count>${complete} answered</span></div><div class="progress-track"><i style="width:${(index + 1) / questions.length * 100}%"></i></div></div>
     <article class="question-card ${revealed ? "revealed" : ""}"><div class="question-meta"><p class="topic">${esc(question.topic)}</p><p class="exam-years">${formatExamYears(question.examYears)}</p></div><h1>${esc(question.question)}</h1><fieldset ${revealed ? "disabled" : ""}><legend class="sr-only">Choose one answer</legend>${optionMarkup(question, selected, revealed)}</fieldset>${revealed ? feedbackMarkup(question, selected) : ""}</article>
     <nav class="exam-actions" aria-label="Question navigation"><button data-action="previous" ${index === 0 ? "disabled" : ""}>Previous</button>${primary}</nav>
     <section class="navigator"><div class="navigator-title"><h2>Question navigator</h2><button class="text-button" data-action="submit">Submit exam</button></div><div class="question-grid">${navigatorMarkup(index)}</div></section>`;
   startTimer();
   if (focusFeedback) requestAnimationFrame(() => main.querySelector("[data-feedback]")?.focus());
-  else if (focusAnswer) requestAnimationFrame(() => main.querySelector(`input[name="answer"][value="${focusAnswer}"]`)?.focus());
 }
 
 function review() {
@@ -171,7 +200,7 @@ function review() {
   const questions = activeSet.questions;
   const score = calculateScore(questions, attempt.answers);
   if (attempt.score !== score) { attempt = { ...attempt, score }; persist(); }
-  const percentage = Math.round(score / questions.length * 100);
+  const percentage = percentOf(score, questions.length);
   main.innerHTML = `<section class="results-head"><p class="eyebrow">${esc(setLabel(activeSet.id))} completed</p><h1>${score} / ${questions.length}</h1><p>${percentage}% correct · Your full answer review is below.</p><button class="primary" data-action="home">Return home</button><button class="text-button" data-action="restart" data-set="${activeSet.id}">Start a fresh attempt</button></section><section class="review-list" aria-label="Answer review">${questions.map((question, index) => {
     const answer = attempt.answers[index]; const status = getReviewStatus(question, answer); const correct = status === "correct";
     const choice = (letter) => question.choices.find((item) => item.label === letter)?.text || "Not answered";
@@ -226,8 +255,9 @@ function restart(setId) {
 function submit() {
   const missing = unansweredIndices(activeSet.questions, attempt.answers);
   const finish = () => {
+    const total = activeSet.questions.length;
     attempt.score = calculateScore(activeSet.questions, attempt.answers); attempt.submittedAt = Date.now();
-    const summary = { score: attempt.score, percent: Math.round(attempt.score / activeSet.questionCount * 100), completedAt: attempt.submittedAt };
+    const summary = { score: attempt.score, total, percent: percentOf(attempt.score, total), completedAt: attempt.submittedAt };
     persist(); summaryStore.save(summary, activeSet.id);
     setStates[activeSet.id] = { attempt, summary };
     setRoute("review");
@@ -237,11 +267,12 @@ function submit() {
 
 function reconcileSubmittedAttempt() {
   if (!activeSet || !attempt?.submittedAt) return;
+  const total = activeSet.questions.length;
   const score = calculateScore(activeSet.questions, attempt.answers);
-  const summary = { score, percent: Math.round(score / activeSet.questionCount * 100), completedAt: attempt.submittedAt };
+  const summary = { score, total, percent: percentOf(score, total), completedAt: attempt.submittedAt };
   if (attempt.score !== score) { attempt = { ...attempt, score }; persist(); }
   const state = setStates[activeSet.id] || {};
-  if (!state.summary || state.summary.score !== summary.score || state.summary.percent !== summary.percent || state.summary.completedAt !== summary.completedAt) {
+  if (!state.summary || state.summary.score !== summary.score || state.summary.total !== summary.total || state.summary.percent !== summary.percent || state.summary.completedAt !== summary.completedAt) {
     summaryStore.save(summary, activeSet.id);
     setStates[activeSet.id] = { ...state, summary };
   }
@@ -259,7 +290,12 @@ function render() {
 }
 
 document.addEventListener("change", (event) => {
-  if (event.target.name === "answer" && attempt && !attempt.submittedAt) { attempt = recordAnswer(attempt, attempt.currentQuestion, event.target.value); persist(); exam({ focusAnswer: event.target.value }); }
+  if (event.target.name !== "answer" || !attempt || attempt.submittedAt) return;
+  const next = recordAnswer(attempt, attempt.currentQuestion, event.target.value);
+  if (next === attempt) return;
+  attempt = next;
+  persist();
+  refreshAnswerState(event.target.value);
 });
 document.addEventListener("click", (event) => {
   const control = event.target.closest("[data-action], [data-question]"); if (!control) return;

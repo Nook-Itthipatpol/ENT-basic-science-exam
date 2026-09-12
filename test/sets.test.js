@@ -45,6 +45,17 @@ test("adding a set is a manifest entry plus a module — loadFromManifest proves
   assert.equal(await loadFromManifest(manifest, "unknown"), null);
 });
 
+test("every active set's manifest questionCount matches its module, so scores and percentages agree", async () => {
+  for (const set of SET_MANIFEST.filter((entry) => entry.status === "active")) {
+    const loaded = await loadSet(set.id);
+    assert.equal(
+      loaded.questions.length,
+      set.questionCount,
+      `${set.id}: the home screen would report a score out of ${set.questionCount} while the review screen uses ${loaded.questions.length}`
+    );
+  }
+});
+
 test("the manifest never authors real content for sets that are not ready yet", () => {
   for (const set of SET_MANIFEST) {
     if (set.status !== "active") assert.equal(set.module, undefined, `${set.id} should have no module until it is real`);
