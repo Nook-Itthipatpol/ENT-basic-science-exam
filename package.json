@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check js/app.js && node --check js/logic.js && node --check js/storage.js && node --check js/sync.js && node --check js/supabase-config.js && node --check js/sets.js && node --check js/sets/set-02.js",
+    "check": "for f in js/*.js js/sets/*.js scripts/*.mjs; do [ -f \"$f\" ] || continue; node --check \"$f\" || exit 1; done",
+    "add-set": "node scripts/add-set.mjs",
     "test": "node --test test/*.test.js",
     "start": "npx serve ."
   }
