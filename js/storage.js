@@ -25,6 +25,11 @@ async function read(key) {
   try { const value = await nativeGet(key); return value ? JSON.parse(value) : null; } catch { return null; }
 }
 
+// The home screen paints from this first. It touches localStorage only, so a
+// stalled or hung Supabase request can never keep the app on a blank page —
+// the remote copy is folded in afterwards by loadWithSync.
+const loadLocal = (setId, kind) => read(keyFor(setId, kind));
+
 async function loadWithSync(setId, kind, sync) {
   const key = keyFor(setId, kind);
   const local = await read(key);
@@ -89,6 +94,7 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
 }
 
 export const attemptStore = {
+  loadLocal: (setId = DEFAULT_SET_ID) => loadLocal(setId, "attempt"),
   load: (setId = DEFAULT_SET_ID) => loadWithSync(setId, "attempt", attemptSync),
   save: (attempt, setId = DEFAULT_SET_ID) => saveWithSync(setId, "attempt", attemptSync, attempt),
   clear: (setId = DEFAULT_SET_ID) => {
@@ -99,6 +105,7 @@ export const attemptStore = {
 };
 
 export const summaryStore = {
+  loadLocal: (setId = DEFAULT_SET_ID) => loadLocal(setId, "summary"),
   load: (setId = DEFAULT_SET_ID) => loadWithSync(setId, "summary", summarySync),
   save: (summary, setId = DEFAULT_SET_ID) => saveWithSync(setId, "summary", summarySync, summary)
 };
