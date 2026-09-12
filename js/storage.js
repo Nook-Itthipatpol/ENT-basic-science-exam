@@ -34,17 +34,68 @@ async function loadWithSync(setId, kind, sync) {
   return winner;
 }
 
+// Every answer and every navigation calls save. localStorage is written
+// straight through — it is the source of truth and must survive a crash — but
+// the Supabase push is coalesced, so a full attempt costs a handful of remote
+// writes instead of one per click. Pending pushes are flushed when the tab
+// goes away, and cancelled outright if the row is cleared first.
+export const SYNC_DEBOUNCE_MS = 2000;
+
+export function createPushQueue(delayMs = SYNC_DEBOUNCE_MS) {
+  const pending = new Map();
+
+  const cancel = (key) => {
+    const entry = pending.get(key);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    pending.delete(key);
+  };
+
+  const flush = (key) => {
+    const entry = pending.get(key);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    pending.delete(key);
+    entry.sync.push(entry.value, entry.setId).catch(() => {});
+  };
+
+  return {
+    cancel,
+    flush,
+    flushAll: () => [...pending.keys()].forEach(flush),
+    pendingCount: () => pending.size,
+    queue(key, sync, setId, value) {
+      cancel(key);
+      const timer = setTimeout(() => flush(key), delayMs);
+      timer?.unref?.(); // a queued push must never hold a Node test run open
+      pending.set(key, { sync, setId, value, timer });
+    }
+  };
+}
+
+const pushQueue = createPushQueue();
+export const flushPendingSync = () => pushQueue.flushAll();
+
 function saveWithSync(setId, kind, sync, value) {
   const key = keyFor(setId, kind);
   const stamped = { ...value, updatedAt: Date.now() };
-  sync.push(stamped, setId).catch(() => {});
+  pushQueue.queue(key, sync, setId, stamped);
   return nativeSet(key, JSON.stringify(stamped)).catch(() => {});
+}
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("pagehide", flushPendingSync);
+  window.addEventListener("visibilitychange", () => { if (window.document?.hidden) flushPendingSync(); });
 }
 
 export const attemptStore = {
   load: (setId = DEFAULT_SET_ID) => loadWithSync(setId, "attempt", attemptSync),
   save: (attempt, setId = DEFAULT_SET_ID) => saveWithSync(setId, "attempt", attemptSync, attempt),
-  clear: (setId = DEFAULT_SET_ID) => { attemptSync.clear(setId).catch(() => {}); return nativeRemove(keyFor(setId, "attempt")).catch(() => {}); }
+  clear: (setId = DEFAULT_SET_ID) => {
+    pushQueue.cancel(keyFor(setId, "attempt")); // don't let a queued push resurrect the row
+    attemptSync.clear(setId).catch(() => {});
+    return nativeRemove(keyFor(setId, "attempt")).catch(() => {});
+  }
 };
 
 export const summaryStore = {
