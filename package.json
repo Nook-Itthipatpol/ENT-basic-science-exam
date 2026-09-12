@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check js/app.js && node --check js/logic.js && node --check js/storage.js && node --check js/sync.js && node --check js/supabase-config.js && node --check js/sets.js && node --check js/sets/set-02.js",
+    "check": "node --check js/app.js && node --check js/logic.js && node --check js/storage.js && node --check js/sync.js && node --check js/supabase-config.js && node --check js/sets.js && node --check js/sets/set-02.js && node --check js/sets/set-03.js && node --check js/sets/set-04.js",
     "test": "node --test test/*.test.js",
     "start": "npx serve ."
   }

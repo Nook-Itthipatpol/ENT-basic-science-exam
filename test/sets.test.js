@@ -10,10 +10,20 @@ test("the manifest's Set 02 metadata matches the real question data", () => {
   assert.equal(meta.durationSeconds, 90 * 60);
 });
 
-test("unannounced sets are listed as coming soon, without a loadable module", () => {
-  const set03 = findSet("set-03");
-  assert.equal(set03.status, "soon");
-  assert.equal(set03.module, undefined);
+test("Sets 03 and 04 are announced with a loadable module and the shared 90-minute format", () => {
+  for (const id of ["set-03", "set-04"]) {
+    const meta = findSet(id);
+    assert.equal(meta.status, "active", `${id} should be active`);
+    assert.equal(meta.questionCount, 61);
+    assert.equal(meta.durationSeconds, 90 * 60);
+    assert.ok(meta.module, `${id} needs a module to import`);
+  }
+});
+
+test("a set that is not ready yet stays unloadable", async () => {
+  const manifest = [{ id: "set-05", title: "Basic Science Mock", status: "soon" }];
+  assert.equal(findInManifest(manifest, "set-05").status, "soon");
+  assert.equal(await loadFromManifest(manifest, "set-05"), null);
 });
 
 test("finding an unknown set id returns null instead of throwing", () => {
@@ -24,10 +34,6 @@ test("loading a set the home screen has not opened yet resolves the real questio
   const loaded = await loadSet("set-02");
   assert.equal(loaded.questions.length, QUESTION_COUNT);
   assert.equal(loaded.id, "set-02");
-});
-
-test("loading a coming-soon set resolves null rather than attempting an import", async () => {
-  assert.equal(await loadSet("set-03"), null);
 });
 
 test("loading an unknown set id resolves null", async () => {
