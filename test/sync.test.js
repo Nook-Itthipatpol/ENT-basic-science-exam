@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { attemptSync, deleteRow, isSyncConfigured, pullRow, pushRow, resolveByUpdatedAt, rowToPayload, summarySync } from "../js/sync.js";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "../js/supabase-config.js";
 
 function stubClient({ row = null } = {}) {
   const upsertCalls = [];
@@ -18,11 +19,14 @@ function stubClient({ row = null } = {}) {
   };
 }
 
-test("committed config ships unconfigured, so sync stays local-only until set up", () => {
-  assert.equal(isSyncConfigured(), false);
+test("the committed config is a real, well-formed Supabase project, not a leftover placeholder", () => {
+  assert.equal(isSyncConfigured(), true);
+  assert.match(SUPABASE_URL, /^https:\/\/[a-z0-9-]+\.supabase\.co$/);
+  assert.ok(SUPABASE_ANON_KEY.length > 20, "the publishable key looks truncated");
+  assert.doesNotMatch(SUPABASE_ANON_KEY, /^sb_secret_|^service_role/, "never ship a secret or service-role key");
 });
 
-test("an unconfigured sync client degrades to safe no-ops instead of throwing", async () => {
+test("sync degrades to safe no-ops instead of throwing when the client cannot be created", async () => {
   assert.equal(await attemptSync.pull(), null);
   assert.doesNotThrow(() => attemptSync.push({ answers: {}, updatedAt: 1 }));
   assert.doesNotThrow(() => attemptSync.clear());

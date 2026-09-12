@@ -99,7 +99,7 @@ function soonCardMarkup(meta) {
 
 function home() {
   stopTimer();
-  if (activeSet && attempt && !attempt.submittedAt && attempt.pausedAt) { attempt = resumeTimer(attempt); persist(); }
+  if (activeSet && attempt && !attempt.submittedAt && !attempt.pausedAt) { attempt = pauseTimer(attempt); persist(); }
   main.innerHTML = `
     <section class="hero"><p class="eyebrow">ENT R1 · Basic Science</p><h1>Mock examinations</h1><p>Focused single-best-answer practice in a calm, exam-like workspace.</p></section>
     <section class="sets" aria-label="Available mock sets">${SET_MANIFEST.map((meta) => (meta.status === "active" ? setCardMarkup(meta) : soonCardMarkup(meta))).join("")}</section>`;
@@ -111,7 +111,7 @@ function syncTimerState() {
   if (next !== attempt) { attempt = next; persist(); }
 }
 
-function optionMarkup(question, index, selected, revealed) {
+function optionMarkup(question, selected, revealed) {
   return question.choices.map((choice) => {
     const isSelected = selected === choice.label;
     const isAnswer = question.correctAnswer === choice.label;
@@ -157,7 +157,7 @@ function exam({ focusAnswer, focusFeedback } = {}) {
   main.innerHTML = `
     <section class="exam-head"><button class="back-button" data-action="home">← Exit to home</button><div class="timer"><span data-timer-label>Time</span><strong data-countdown></strong></div></section>
     <div class="exam-progress" aria-label="${complete} of ${questions.length} questions answered"><div><span>Question ${index + 1} of ${questions.length}</span><span>${complete} answered</span></div><div class="progress-track"><i style="width:${(index + 1) / questions.length * 100}%"></i></div></div>
-    <article class="question-card ${revealed ? "revealed" : ""}"><div class="question-meta"><p class="topic">${esc(question.topic)}</p><p class="exam-years">${formatExamYears(question.examYears)}</p></div><h1>${esc(question.question)}</h1><fieldset ${revealed ? "disabled" : ""}><legend class="sr-only">Choose one answer</legend>${optionMarkup(question, index, selected, revealed)}</fieldset>${revealed ? feedbackMarkup(question, selected) : ""}</article>
+    <article class="question-card ${revealed ? "revealed" : ""}"><div class="question-meta"><p class="topic">${esc(question.topic)}</p><p class="exam-years">${formatExamYears(question.examYears)}</p></div><h1>${esc(question.question)}</h1><fieldset ${revealed ? "disabled" : ""}><legend class="sr-only">Choose one answer</legend>${optionMarkup(question, selected, revealed)}</fieldset>${revealed ? feedbackMarkup(question, selected) : ""}</article>
     <nav class="exam-actions" aria-label="Question navigation"><button data-action="previous" ${index === 0 ? "disabled" : ""}>Previous</button>${primary}</nav>
     <section class="navigator"><div class="navigator-title"><h2>Question navigator</h2><button class="text-button" data-action="submit">Submit exam</button></div><div class="question-grid">${navigatorMarkup(index)}</div></section>`;
   startTimer();
@@ -250,6 +250,10 @@ function reconcileSubmittedAttempt() {
 function render() {
   reconcileSubmittedAttempt();
   const route = location.hash.slice(1) || "home";
+  // Browser Back from the review screen lands on #exam with a submitted
+  // attempt: the timer is frozen and every option is inert, so send it on to
+  // the review it belongs to instead of rendering a dead exam.
+  if (route === "exam" && attempt?.submittedAt) { setRoute("review"); return; }
   if (route === "exam") exam(); else if (route === "review" && attempt?.submittedAt) review(); else home();
   requestAnimationFrame(() => main.focus());
 }
@@ -282,6 +286,18 @@ document.addEventListener("submit", (event) => {
     .then(() => { syncNotice = "Check your email for a sign-in link."; renderSyncBar(); })
     .catch(() => { syncNotice = "Could not send the link. Try again later."; renderSyncBar(); });
 });
+// The clock is only honest while the exam is actually on screen: a hidden or
+// closing tab pauses it, and reopening the exam resumes it via syncTimerState.
+function pauseForAbsence() {
+  if (!attempt || attempt.submittedAt || attempt.pausedAt) return;
+  attempt = pauseTimer(attempt);
+  persist();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { stopTimer(); pauseForAbsence(); return; }
+  if (activeSet && attempt && !attempt.submittedAt && (location.hash.slice(1) || "home") === "exam") exam();
+});
+window.addEventListener("pagehide", pauseForAbsence);
 window.addEventListener("hashchange", render);
 
 async function boot() {
