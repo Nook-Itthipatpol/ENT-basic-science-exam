@@ -4,6 +4,16 @@ A static, Vercel-ready single-page mock examination for ENT R1 Basic Science, co
 
 Each question is answered one at a time: choose an option, submit it, and the 90-minute timer pauses while the explanation is shown. Submitted answers are final. Moving to the next question resumes the timer. The timer also pauses whenever the exam is not on screen — on the home screen, in a hidden tab, or after the tab is closed — so an attempt can be picked up later without the clock having drained in the meantime. A full answer review is still available after the exam is submitted.
 
+## Adding a mock set
+
+Each set is generated from its refined CSV; see [CLAUDE.md](CLAUDE.md) for the
+column format and the checks a set has to pass.
+
+```bash
+npm run add-set -- path/to/ENT_R1_Basic_Science_Mock_Set_05_refined.csv set-05
+npm run check && npm test
+```
+
 ## Local preview
 
 No install step is required. From this directory, run:

@@ -117,5 +117,11 @@ for (const { meta, questions } of activeSets) {
 }
 
 test("every announced set is covered by these data checks", () => {
-  assert.deepEqual(activeSets.map(({ meta }) => meta.id), ["set-02", "set-03", "set-04"]);
+  // Guards against a set being added to the manifest but silently skipped
+  // here, which would let unchecked question data reach the app.
+  assert.deepEqual(
+    activeSets.map(({ meta }) => meta.id),
+    SET_MANIFEST.filter((meta) => meta.status === "active").map((meta) => meta.id)
+  );
+  assert.ok(activeSets.length > 0, "no active set was loaded, so nothing above actually ran");
 });
