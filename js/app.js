@@ -19,7 +19,8 @@ const esc = (value) => String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp
 const setLabel = (setId) => `Set ${setId.replace("set-", "")}`;
 const setRoute = (route) => { location.hash = route; };
 const progress = () => answeredCount(attempt?.answers || {});
-const formatExamYears = (examYears) => `Exam year${examYears.length === 1 ? "" : "s"}: ${examYears.join(", ")}`;
+// The label lives in assistive text only — on screen the years speak for themselves.
+const formatExamYears = (examYears) => `<span class="sr-only">Exam year${examYears.length === 1 ? "" : "s"}: </span>${examYears.join(", ")}`;
 // Always score against the questions actually loaded, and record that total on
 // the summary so the home screen can report a score out of the same
 // denominator without having to import the set's question module.
@@ -62,7 +63,7 @@ function startTimer() {
     target.classList.toggle("overdue", remaining < 0);
     target.setAttribute("aria-label", `${paused ? "Timer paused, " : ""}${remaining < 0 ? "Time exceeded" : "Time remaining"}: ${formatCountdown(remaining)}`);
     const label = document.querySelector("[data-timer-label]");
-    if (label) label.textContent = paused ? "Paused" : "Time";
+    if (label) label.textContent = paused ? "Paused" : "";
     document.querySelector(".timer")?.classList.toggle("paused", paused);
   };
   update();
@@ -73,7 +74,7 @@ function renderSyncBar() {
   if (!syncBar || !isSyncConfigured()) return;
   syncBar.innerHTML = syncSession
     ? `<span>Synced as ${esc(syncSession.user.email)}</span><button class="text-button" data-action="sync-out">Sign out</button>`
-    : `<form data-sync-form><label class="sr-only" for="sync-email">Email for sign-in link</label><input id="sync-email" type="email" name="email" placeholder="you@example.com" required/><button class="text-button" type="submit">Sync across devices</button></form>${syncNotice ? `<p class="sync-notice">${esc(syncNotice)}</p>` : ""}`;
+    : `<details class="sync-details"${syncNotice ? " open" : ""}><summary>Sync</summary><form data-sync-form><label class="sr-only" for="sync-email">Email for sign-in link</label><input id="sync-email" type="email" name="email" placeholder="you@example.com" required/><button class="text-button" type="submit">Send link</button></form>${syncNotice ? `<p class="sync-notice">${esc(syncNotice)}</p>` : ""}</details>`;
 }
 
 function afterAuthChange(session) {
@@ -91,21 +92,20 @@ function setCardMarkup(meta) {
   const state = setStates[meta.id] || {};
   const active = state.attempt && !state.attempt.submittedAt;
   const storedProgress = active ? answeredCount(state.attempt.answers || {}) : 0;
-  const last = state.summary ? `${state.summary.score}/${state.summary.total ?? meta.questionCount} (${state.summary.percent}%)` : "No completed attempt yet";
   const label = setLabel(meta.id);
-  return `<article class="set-card active-card"><div class="set-card-top"><span class="set-label">${esc(label)}</span><span class="status">Active</span></div><h2>${esc(meta.title)}</h2><p>${meta.questionCount} questions · ${Math.round(meta.durationSeconds / 60)} minutes · fixed order</p>${active ? `<div class="card-progress"><span>${storedProgress} of ${meta.questionCount} answered</span><div class="progress-track"><i style="width:${storedProgress / meta.questionCount * 100}%"></i></div></div>` : ""}<p class="latest-score">Latest score: ${esc(last)}</p><button class="primary" data-action="${active ? "resume" : "start"}" data-set="${meta.id}">${active ? "Resume attempt" : `Start ${esc(label)}`}</button>${active ? `<button class="text-button" data-action="restart" data-set="${meta.id}">Restart attempt</button>` : ""}</article>`;
+  return `<article class="set-card active-card"><div class="set-card-top"><h2>${esc(label)}</h2>${active ? '<span class="status">In progress</span>' : ""}</div><p class="set-meta">${meta.questionCount} questions</p>${active ? `<div class="card-progress"><div class="progress-track"><i style="width:${storedProgress / meta.questionCount * 100}%"></i></div><span>${storedProgress}/${meta.questionCount}</span></div>` : ""}${state.summary ? `<p class="latest-score">Last ${state.summary.score}/${state.summary.total ?? meta.questionCount} · ${state.summary.percent}%</p>` : ""}<button class="primary" data-action="${active ? "resume" : "start"}" data-set="${meta.id}" aria-label="${active ? "Resume" : "Start"} ${esc(label)}">${active ? "Resume" : "Start"} →</button>${active ? `<button class="text-button" data-action="restart" data-set="${meta.id}">Restart</button>` : ""}</article>`;
 }
 
 function soonCardMarkup(meta) {
   const label = setLabel(meta.id);
-  return `<article class="set-card disabled-card" aria-label="${esc(label)}, coming soon and unavailable"><div class="set-card-top"><span class="set-label">${esc(label)}</span><span class="status muted">Coming soon</span></div><h2>${esc(meta.title)}</h2><p>New question set in preparation.</p><button disabled>Coming soon — unavailable</button></article>`;
+  return `<article class="set-card disabled-card" aria-label="${esc(label)}, coming soon and unavailable"><div class="set-card-top"><h2>${esc(label)}</h2><span class="status muted">Soon</span></div><p class="set-meta">In preparation</p></article>`;
 }
 
 function home() {
   stopTimer();
   if (activeSet && attempt && !attempt.submittedAt && !attempt.pausedAt) { attempt = pauseTimer(attempt); persist(); }
   main.innerHTML = `
-    <section class="hero"><p class="eyebrow">ENT R1 · Basic Science</p><h1>Mock examinations</h1><p>Focused single-best-answer practice in a calm, exam-like workspace.</p></section>
+    <section class="hero"><h1>Mock exams</h1></section>
     <section class="sets" aria-label="Available mock sets">${SET_MANIFEST.map((meta) => (meta.status === "active" ? setCardMarkup(meta) : soonCardMarkup(meta))).join("")}</section>`;
 }
 
@@ -153,7 +153,7 @@ function feedbackMarkup(question, selected) {
   const correct = selected === question.correctAnswer;
   const answerText = question.choices.find((item) => item.label === question.correctAnswer)?.text || "";
   return `<section class="feedback ${correct ? "correct" : "incorrect"}" data-feedback tabindex="-1" aria-label="Answer feedback">
-      <div class="feedback-head"><strong>${correct ? "Correct" : "Incorrect"}</strong><span class="feedback-paused">Timer paused</span></div>
+      <div class="feedback-head"><strong>${correct ? "Correct" : "Incorrect"}</strong></div>
       ${correct ? "" : `<p class="feedback-answer">Correct answer: <strong>${esc(question.correctAnswer)}. ${esc(answerText)}</strong></p>`}
       <div class="review-note"><strong>Explanation</strong><p>${esc(question.explanation)}</p></div>
     </section>`;
@@ -182,14 +182,14 @@ function exam({ focusFeedback } = {}) {
   const isLast = index === questions.length - 1;
   const complete = progress();
   const primary = revealed
-    ? `<button class="primary" data-action="${isLast ? "submit" : "next"}">${isLast ? "Finish exam" : "Next question →"}</button>`
-    : `<button class="primary" data-action="reveal" ${selected ? "" : "disabled"}>Submit answer</button>`;
+    ? `<button class="primary" data-action="${isLast ? "submit" : "next"}">${isLast ? "Finish" : "Next →"}</button>`
+    : `<button class="primary" data-action="reveal" ${selected ? "" : "disabled"}>Check answer</button>`;
   main.innerHTML = `
-    <section class="exam-head"><button class="back-button" data-action="home">← Exit to home</button><div class="timer"><span data-timer-label>Time</span><strong data-countdown></strong></div></section>
-    <div class="exam-progress" data-exam-progress aria-label="${complete} of ${questions.length} questions answered"><div><span>Question ${index + 1} of ${questions.length}</span><span data-answered-count>${complete} answered</span></div><div class="progress-track"><i style="width:${(index + 1) / questions.length * 100}%"></i></div></div>
+    <section class="exam-head"><button class="back-button" data-action="home" aria-label="Exit to home">← Exit</button><div class="timer"><span data-timer-label>Time</span><strong data-countdown></strong></div></section>
+    <div class="exam-progress" data-exam-progress aria-label="${complete} of ${questions.length} questions answered"><div><span>${index + 1} / ${questions.length}</span><span data-answered-count>${complete} answered</span></div><div class="progress-track"><i style="width:${(index + 1) / questions.length * 100}%"></i></div></div>
     <article class="question-card ${revealed ? "revealed" : ""}"><div class="question-meta"><p class="topic">${esc(question.topic)}</p><p class="exam-years">${formatExamYears(question.examYears)}</p></div><h1>${esc(question.question)}</h1><fieldset ${revealed ? "disabled" : ""}><legend class="sr-only">Choose one answer</legend>${optionMarkup(question, selected, revealed)}</fieldset>${revealed ? feedbackMarkup(question, selected) : ""}</article>
     <nav class="exam-actions" aria-label="Question navigation"><button data-action="previous" ${index === 0 ? "disabled" : ""}>Previous</button>${primary}</nav>
-    <section class="navigator"><div class="navigator-title"><h2>Question navigator</h2><button class="text-button" data-action="submit">Submit exam</button></div><div class="question-grid">${navigatorMarkup(index)}</div></section>`;
+    <section class="navigator"><div class="navigator-title"><h2 class="sr-only">Question navigator</h2><button class="text-button" data-action="submit">Submit exam</button></div><div class="question-grid">${navigatorMarkup(index)}</div></section>`;
   startTimer();
   if (focusFeedback) requestAnimationFrame(() => main.querySelector("[data-feedback]")?.focus());
 }
@@ -201,7 +201,7 @@ function review() {
   const score = calculateScore(questions, attempt.answers);
   if (attempt.score !== score) { attempt = { ...attempt, score }; persist(); }
   const percentage = percentOf(score, questions.length);
-  main.innerHTML = `<section class="results-head"><p class="eyebrow">${esc(setLabel(activeSet.id))} completed</p><h1>${score} / ${questions.length}</h1><p>${percentage}% correct · Your full answer review is below.</p><button class="primary" data-action="home">Return home</button><button class="text-button" data-action="restart" data-set="${activeSet.id}">Start a fresh attempt</button></section><section class="review-list" aria-label="Answer review">${questions.map((question, index) => {
+  main.innerHTML = `<section class="results-head"><p class="eyebrow">${esc(setLabel(activeSet.id))} completed</p><h1>${score} / ${questions.length}</h1><p>${percentage}% correct</p><button class="primary" data-action="home">Home</button><button class="text-button" data-action="restart" data-set="${activeSet.id}">Fresh attempt</button></section><section class="review-list" aria-label="Answer review">${questions.map((question, index) => {
     const answer = attempt.answers[index]; const status = getReviewStatus(question, answer); const correct = status === "correct";
     const choice = (letter) => question.choices.find((item) => item.label === letter)?.text || "Not answered";
     return `<article class="review-card ${correct ? "correct" : "incorrect"}"><div class="review-meta"><span>Question ${index + 1}</span><span>${formatExamYears(question.examYears)}</span><span>${status === "correct" ? "Correct" : status === "incorrect" ? "Incorrect" : "Unanswered"}</span></div><h2>${esc(question.question)}</h2><p><strong>Your answer:</strong> ${answer ? `${esc(answer)}. ${esc(choice(answer))}` : "Not answered"}</p><p><strong>Correct answer:</strong> ${esc(question.correctAnswer)}. ${esc(choice(question.correctAnswer))}</p><div class="review-note"><strong>High-yield review</strong><p>${esc(question.highYieldReview)}</p></div></article>`;
@@ -286,7 +286,7 @@ function render() {
   // the review it belongs to instead of rendering a dead exam.
   if (route === "exam" && attempt?.submittedAt) { setRoute("review"); return; }
   if (route === "exam") exam(); else if (route === "review" && attempt?.submittedAt) review(); else home();
-  requestAnimationFrame(() => main.focus());
+  requestAnimationFrame(() => main.focus({ preventScroll: true }));
 }
 
 document.addEventListener("change", (event) => {
