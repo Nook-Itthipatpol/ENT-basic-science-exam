@@ -93,7 +93,7 @@ function setCardMarkup(meta) {
   const active = state.attempt && !state.attempt.submittedAt;
   const storedProgress = active ? answeredCount(state.attempt.answers || {}) : 0;
   const label = setLabel(meta.id);
-  return `<article class="set-card active-card"><div class="set-card-top"><h2>${esc(label)}</h2>${active ? '<span class="status">In progress</span>' : ""}</div><p class="set-meta">${meta.questionCount} questions · ${Math.round(meta.durationSeconds / 60)} min</p>${active ? `<div class="card-progress"><div class="progress-track"><i style="width:${storedProgress / meta.questionCount * 100}%"></i></div><span>${storedProgress}/${meta.questionCount}</span></div>` : ""}${state.summary ? `<p class="latest-score">Last ${state.summary.score}/${state.summary.total ?? meta.questionCount} · ${state.summary.percent}%</p>` : ""}<button class="primary" data-action="${active ? "resume" : "start"}" data-set="${meta.id}" aria-label="${active ? "Resume" : "Start"} ${esc(label)}">${active ? "Resume" : "Start"} →</button>${active ? `<button class="text-button" data-action="restart" data-set="${meta.id}">Restart</button>` : ""}</article>`;
+  return `<article class="set-card active-card"><div class="set-card-top"><h2>${esc(label)}</h2>${active ? '<span class="status">In progress</span>' : ""}</div><p class="set-meta">${meta.questionCount} questions</p>${active ? `<div class="card-progress"><div class="progress-track"><i style="width:${storedProgress / meta.questionCount * 100}%"></i></div><span>${storedProgress}/${meta.questionCount}</span></div>` : ""}${state.summary ? `<p class="latest-score">Last ${state.summary.score}/${state.summary.total ?? meta.questionCount} · ${state.summary.percent}%</p>` : ""}<button class="primary" data-action="${active ? "resume" : "start"}" data-set="${meta.id}" aria-label="${active ? "Resume" : "Start"} ${esc(label)}">${active ? "Resume" : "Start"} →</button>${active ? `<button class="text-button" data-action="restart" data-set="${meta.id}">Restart</button>` : ""}</article>`;
 }
 
 function soonCardMarkup(meta) {
@@ -105,7 +105,7 @@ function home() {
   stopTimer();
   if (activeSet && attempt && !attempt.submittedAt && !attempt.pausedAt) { attempt = pauseTimer(attempt); persist(); }
   main.innerHTML = `
-    <section class="hero"><p class="eyebrow">ENT R1 · Basic science</p><h1>Mock exams</h1></section>
+    <section class="hero"><h1>Mock exams</h1></section>
     <section class="sets" aria-label="Available mock sets">${SET_MANIFEST.map((meta) => (meta.status === "active" ? setCardMarkup(meta) : soonCardMarkup(meta))).join("")}</section>`;
 }
 

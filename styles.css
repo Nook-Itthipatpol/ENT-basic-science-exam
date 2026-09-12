@@ -24,6 +24,7 @@ h1,h2,.brand,.eyebrow,.topic,.timer strong,.status,.nav-question,.review-meta,.o
 
 /* Header */
 .site-header{background:var(--paper);border-bottom:1px solid var(--line)}
+.site-header:has(.sync-bar:empty){display:none}
 .header-inner{min-height:3.25rem;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;padding:.4rem 0}
 .brand{font-weight:600;font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-2);text-decoration:none}
 .brand span{color:var(--teal)}
@@ -85,13 +86,13 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:1.5px sol
 .exam-years{margin:0;color:var(--faint);font-size:.68rem;letter-spacing:.12em;text-align:right;white-space:nowrap}
 .question-card h1{font-size:1.3rem;line-height:1.4;margin:.35rem 0 1.75rem;color:var(--ink-2);font-weight:500;letter-spacing:-.018em;overflow-wrap:anywhere}
 fieldset{padding:0;border:0;margin:0;display:grid;gap:.4rem}
-.option{display:flex;align-items:center;gap:.85rem;border:1px solid var(--line);border-radius:var(--r);padding:.9rem 1rem;cursor:pointer;min-height:3.3rem;background:var(--paper);overflow-wrap:anywhere;transition:border-color .15s ease,background .15s ease}
+.option{display:grid;grid-template-columns:.7rem 1.1rem 1fr auto;align-items:center;column-gap:.85rem;border:1px solid var(--line);border-radius:var(--r);padding:.9rem 1rem;cursor:pointer;min-height:3.3rem;background:var(--paper);overflow-wrap:anywhere;transition:border-color .15s ease,background .15s ease}
 .option:hover:not(:has(input:disabled)){border-color:var(--line-strong)}
 .option:focus-within{outline:1.5px solid var(--ink-2);outline-offset:2px}
 .option:has(input:checked){border-color:var(--ink-2)}
 .option input{appearance:none;width:.7rem;height:.7rem;flex:none;border:1px solid var(--line-strong);border-radius:50%;margin:0 .1rem;background:var(--paper);transition:background .15s ease,border-color .15s ease}
 .option input:checked{background:var(--ink-2);border-color:var(--ink-2)}
-.choice-letter{font-weight:500;color:var(--muted);min-width:1.1rem;font-size:.82rem;letter-spacing:.08em}
+.choice-letter{font-weight:500;color:var(--muted);font-size:.82rem;letter-spacing:.08em;text-align:center}
 .option:has(input:checked) .choice-letter{color:var(--ink-2)}
 .option:has(input:disabled){cursor:default}
 .question-card.revealed .option.is-correct{border-color:var(--teal);background:var(--teal-soft)}
@@ -100,7 +101,7 @@ fieldset{padding:0;border:0;margin:0;display:grid;gap:.4rem}
 .question-card.revealed .option.is-wrong{border-color:var(--danger-line);background:var(--danger-soft)}
 .question-card.revealed .option.is-wrong .choice-letter{color:var(--danger)}
 .question-card.revealed .option.is-wrong input:checked{background:var(--danger);border-color:var(--danger)}
-.option-tag{margin-left:auto;align-self:center;font-size:.58rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--teal-deep);white-space:nowrap}
+.option-tag{grid-column:4;align-self:center;font-size:.58rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--teal-deep);white-space:nowrap}
 .question-card.revealed .option.is-wrong .option-tag{color:var(--danger)}
 
 /* Feedback */
@@ -111,7 +112,7 @@ fieldset{padding:0;border:0;margin:0;display:grid;gap:.4rem}
 .feedback.incorrect .feedback-head strong{color:var(--danger)}
 .feedback-answer{margin:.8rem 0 0;font-size:.9rem;color:var(--muted)}
 .feedback-answer strong{color:var(--ink-2);font-weight:500}
-.review-note{margin-top:1.25rem;border-left:2px solid var(--amber-soft);padding-left:1rem}
+.review-note{margin-top:1.25rem;border-left:2px solid var(--teal);padding-left:1rem}
 .review-note strong{color:var(--faint);font-size:.58rem;letter-spacing:.2em;text-transform:uppercase;font-weight:500}
 .review-note p{margin:.5rem 0 0;font-size:.92rem;line-height:1.65;color:var(--muted)}
 
@@ -177,7 +178,7 @@ fieldset{padding:0;border:0;margin:0;display:grid;gap:.4rem}
   /* A glyph reads faster than a label at this width, and keeps the choice on one line. */
   .option-tag{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
   .option{position:relative}
-  .question-card.revealed .option.is-correct::after,.question-card.revealed .option.is-wrong::after{margin-left:auto;font-size:.85rem}
+  .question-card.revealed .option.is-correct::after,.question-card.revealed .option.is-wrong::after{grid-column:4;font-size:.85rem}
   .question-card.revealed .option.is-correct::after{content:"✓";color:var(--teal-deep)}
   .question-card.revealed .option.is-wrong::after{content:"✕";color:var(--danger)}
   .sync-details[open]{position:static}
