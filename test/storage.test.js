@@ -98,6 +98,36 @@ test("each set is stored under its own key, isolated from other sets", async () 
   assert.deepEqual((await attemptStore.load("set-02")).answers, { 0: "A" }, "clearing one set leaves the other untouched");
 });
 
+test("loadLocal reads only localStorage, so a hung sync pull cannot block the first paint", async () => {
+  const storage = createStorage();
+  setWindow({ storage, localStorage: createStorage() });
+
+  await attemptStore.save({ answers: { 0: "A" }, currentQuestion: 0 }, "set-03");
+  await summaryStore.save({ score: 40, total: 61, percent: 66 }, "set-03");
+  storage.calls.length = 0;
+
+  const attempt = await attemptStore.loadLocal("set-03");
+  const summary = await summaryStore.loadLocal("set-03");
+
+  assert.deepEqual(attempt.answers, { 0: "A" });
+  assert.equal(summary.score, 40);
+  assert.deepEqual(
+    storage.calls,
+    [["getItem", "ent-r1-set-03-attempt"], ["getItem", "ent-r1-set-03-summary"]],
+    "loadLocal must not write back a sync winner, or await anything but storage"
+  );
+});
+
+test("loadLocal is set-scoped and tolerates missing or corrupt local data", async () => {
+  const storage = createStorage({ "ent-r1-set-04-attempt": "{not json" });
+  setWindow({ storage, localStorage: createStorage() });
+
+  await attemptStore.save({ answers: { 1: "C" } }, "set-02");
+  assert.deepEqual((await attemptStore.loadLocal("set-02")).answers, { 1: "C" });
+  assert.equal(await attemptStore.loadLocal("set-03"), null, "an untouched set reads back empty, not another set's attempt");
+  assert.equal(await attemptStore.loadLocal("set-04"), null, "corrupt JSON resolves null rather than throwing during boot");
+});
+
 function recordingSync() {
   const pushes = [];
   return { pushes, push: async (value, setId) => { pushes.push({ value, setId }); } };

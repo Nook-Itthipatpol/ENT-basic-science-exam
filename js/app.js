@@ -29,13 +29,45 @@ const percentOf = (score, total) => Math.round(score / total * 100);
 function persist() {
   if (!activeSet) return;
   attemptStore.save(attempt, activeSet.id);
+  persistCount++;
   setStates[activeSet.id] = { ...(setStates[activeSet.id] || {}), attempt };
 }
 
-async function loadSetStates() {
-  const active = SET_MANIFEST.filter((set) => set.status === "active");
-  const loaded = await Promise.all(active.map((set) => Promise.all([attemptStore.load(set.id), summaryStore.load(set.id)])));
-  setStates = Object.fromEntries(active.map((set, index) => [set.id, { attempt: loaded[index][0], summary: loaded[index][1] }]));
+const activeSets = () => SET_MANIFEST.filter((set) => set.status === "active");
+
+async function readSetStates(read) {
+  const sets = activeSets();
+  const loaded = await Promise.all(sets.map((set) => Promise.all([read.attempt(set.id), read.summary(set.id)])));
+  return Object.fromEntries(sets.map((set, index) => [set.id, { attempt: loaded[index][0], summary: loaded[index][1] }]));
+}
+
+// localStorage only, so the first paint never waits on the network. Sync has
+// no timeout, and one request per active set is in flight on a signed-in
+// load — before this split, a single hung request left the app on a blank
+// page for as long as the connection stayed open.
+async function loadLocalSetStates() {
+  setStates = await readSetStates({ attempt: attemptStore.loadLocal, summary: summaryStore.loadLocal });
+}
+
+// Counts local writes, so a sync refresh that started before the user began
+// answering can tell that it is about to adopt a stale copy over live work.
+let persistCount = 0;
+
+async function refreshSetStatesFromSync() {
+  const writesBefore = persistCount;
+  const synced = await readSetStates({ attempt: attemptStore.load, summary: summaryStore.load });
+  const openSetId = activeSet?.id;
+
+  setStates = synced;
+  if (persistCount !== writesBefore) {
+    // The user answered while the pull was in flight. Their in-memory attempt
+    // is newer than anything this refresh resolved, so keep it.
+    if (openSetId) setStates[openSetId] = { ...setStates[openSetId], attempt };
+    return;
+  }
+
+  const state = openSetId && setStates[openSetId];
+  if (state?.attempt) attempt = sanitizeAttempt(state.attempt, activeSet.questionCount, Date.now(), activeSet.id, activeSet.durationSeconds);
 }
 
 async function openSet(setId, { fresh } = {}) {
@@ -81,11 +113,7 @@ function afterAuthChange(session) {
   syncSession = session;
   renderSyncBar();
   if (!session) return;
-  loadSetStates().then(() => {
-    const state = activeSet && setStates[activeSet.id];
-    if (state) attempt = sanitizeAttempt(state.attempt, activeSet.questionCount, Date.now(), activeSet.id, activeSet.durationSeconds);
-    render();
-  });
+  refreshSetStatesFromSync().then(render);
 }
 
 function setCardMarkup(meta) {
@@ -336,8 +364,12 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", pauseForAbsence);
 window.addEventListener("hashchange", render);
 
+// First paint is local-only and unconditional. Folding in the remote copy is
+// afterAuthChange's job: it fires from getSession() below for an already
+// signed-in visitor, and again on every later auth change, so a slow or hung
+// pull delays a card's score rather than the whole app.
 async function boot() {
-  await loadSetStates();
+  await loadLocalSetStates();
   const route = location.hash.slice(1) || "home";
   const savedSetId = (route === "exam" || route === "review") && await activeSetId.load();
   const stored = savedSetId && setStates[savedSetId]?.attempt;

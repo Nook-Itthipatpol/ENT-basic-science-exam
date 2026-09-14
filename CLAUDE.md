@@ -9,7 +9,11 @@ dependencies. `index.html` loads `js/app.js`; Vercel serves the folder as-is.
 - `js/sets/<set-id>.js` — one module per set, generated from its CSV. Never
   hand-edit these; fix the CSV and re-run the importer.
 - `js/logic.js`, `js/storage.js`, `js/sync.js` — scoring/timer, localStorage,
-  optional Supabase sync. `DEFAULT_SET_ID` in `storage.js` and `SET_ID` in
+  optional Supabase sync. Sync has no timeout, so the first paint must never
+  await it: `boot()` fills the home screen from `*.loadLocal` and the remote
+  copy is folded in later by `afterAuthChange`. Keep it that way — awaiting a
+  pull before `render()` means one hung request blanks the whole app, and the
+  cost grows with every set added. `DEFAULT_SET_ID` in `storage.js` and `SET_ID` in
   `sync.js` are legacy migration defaults pinned to `set-02`; leave them.
 - `test/` — `node:test`, run with `npm test`. `npm run check` is a syntax pass
   over every module.
